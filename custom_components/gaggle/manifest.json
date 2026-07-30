@@ -1,0 +1,22 @@
+{
+  "domain": "gaggle",
+  "name": "AGL Gaggle",
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@naanyabiz"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/NaanyaBiz/gaggle",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/NaanyaBiz/gaggle/issues",
+  "loggers": [
+    "custom_components.gaggle"
+  ],
+  "quality_scale": "bronze",
+  "requirements": [],
+  "version": "0.1.0"
+}

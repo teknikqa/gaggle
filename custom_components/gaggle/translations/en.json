@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Log in to AGL",
+        "description": "Open the URL below in your browser and log in with your AGL credentials. After login you will see a 'Not Found' page -- copy the full URL from the address bar and paste it in the field below.\n\n`{authorize_url}`",
+        "data": {
+          "callback_url": "Callback URL (from address bar after login)"
+        }
+      },
+      "select_contract": {
+        "title": "Select contract",
+        "description": "Multiple gas contracts were found. Select the one to monitor.",
+        "data": {
+          "contract_number": "Contract"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed or callback URL is invalid. Try opening the authorize URL again.",
+      "cannot_connect": "Could not reach AGL. Check your internet connection."
+    },
+    "abort": {
+      "already_configured": "This AGL contract is already configured.",
+      "reauth_successful": "Reauthentication successful."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "consumption": {
+        "name": "Consumption"
+      },
+      "consumption_cost": {
+        "name": "Consumption cost"
+      },
+      "consumption_period": {
+        "name": "Consumption this period"
+      },
+      "consumption_period_cost": {
+        "name": "Consumption cost this period"
+      },
+      "unit_rate": {
+        "name": "Unit rate"
+      },
+      "supply_charge": {
+        "name": "Supply charge"
+      }
+    }
+  }
+}

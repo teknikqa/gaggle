@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement or new sensor
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >-
+        Testable pass/fail statements for "this feature is done" — e.g.
+        "consumption statistic total matches the AGL app's usage figure for
+        the same billing period". Optional: if left empty on a non-trivial
+        request, the maintainer states them on the issue before
+        implementation.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I've checked that this data is actually available in the AGL app/API.
+          required: true
+        - label: I understand this integration targets AGL Energy Australia customers only.
+          required: true

@@ -1,0 +1,9 @@
+{
+  "name": "AGL Gaggle",
+  "country": "AU",
+  "homeassistant": "2026.7.0",
+  "render_readme": true,
+  "zip_release": true,
+  "filename": "gaggle.zip",
+  "hide_default_branch": true
+}

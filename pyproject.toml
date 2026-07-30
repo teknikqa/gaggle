@@ -1,0 +1,160 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gaggle"
+version = "0.1.0"
+description = "AGL Australia gas smart meter -> Home Assistant Energy dashboard"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Naanya Biz", email = "davosparent@gmail.com" }]
+requires-python = ">=3.14.2"
+keywords = ["home-assistant", "hacs", "agl", "energy", "smart-meter", "australia"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Home Automation",
+]
+dependencies = [
+    # Runtime deps mirror what's in custom_components/gaggle/manifest.json
+    # so editor tooling resolves imports. HA installs from manifest at runtime.
+    # HA 2026.4 closed the 13 CVEs v0.1.0 inherited (SCA-M01..M05, SCA-L01..L08,
+    # SCA-H02) via aiohttp==3.13.5 + cryptography>=46.0.6 + orjson>=3.11.6;
+    # 2026.5.0 keeps those at-or-above. HA 2026.4+ also requires Python 3.14.2.
+    "homeassistant>=2026.7.2",
+    # HA 2026.7.0 relaxed its exact aiohttp pin, so the resolver now lands
+    # 3.14.1+ (closes the 2026-06/07 aiohttp advisory cluster; supersedes
+    # Dependabot #106). Users always get aiohttp from HA core, not from us —
+    # manifest.json ships no requirements; this floor is dev/editor tooling.
+    "aiohttp>=3.14.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    # Tracks a homeassistant patch series — keep aligned with the runtime
+    # floor above so transitive resolution stays consistent. Deliberately a
+    # RANGE, not an exact patch pin: upstream releases near-daily, so an
+    # exact pin manufactured a guaranteed weekly Dependabot PR and caused
+    # two resolver deadlocks (#106, #120). uv.lock is the reproducibility
+    # authority; this range just has to keep resolution satisfiable.
+    "pytest-homeassistant-custom-component>=0.13.346,<0.14",
+    "ruff>=0.15.21",
+    "mypy>=2.3.0",
+    "pre-commit>=4.6.0",
+    # Workflow security audit (CI step + pre-commit local hook). Rust binary
+    # wheels from PyPI; version governed by uv.lock like ruff/mypy.
+    "zizmor>=1.27.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/NaanyaBiz/gaggle"
+Issues = "https://github.com/NaanyaBiz/gaggle/issues"
+Changelog = "https://github.com/NaanyaBiz/gaggle/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["custom_components/gaggle"]
+
+# ---------- ruff ----------
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["custom_components", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",      # pycodestyle
+    "F",           # pyflakes
+    "I",           # isort
+    "UP",          # pyupgrade
+    "B",           # flake8-bugbear
+    "C901",        # mccabe complexity (threshold under [tool.ruff.lint.mccabe])
+    "SIM",         # flake8-simplify
+    "RUF",         # ruff-specific
+    "ASYNC",       # flake8-async (catches blocking I/O in async)
+    "N",           # pep8-naming
+    "PL",          # pylint
+    "PT",          # pytest style
+    "S",           # flake8-bandit (security)
+    "TID",         # tidy imports
+    "TCH",         # type-checking (move imports to TYPE_CHECKING)
+]
+ignore = [
+    "E501",        # line length handled by formatter
+    "PLR0913",     # too many arguments — HA entity __init__ legitimately takes many
+    "PLR2004",     # magic numbers in tests are fine
+    "S101",        # assert in tests
+    "TID252",      # HA integrations use relative imports throughout; absolute is wrong here
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "PLR", "PLC0415", "PT011"]
+"scripts/**/*.py" = ["S603", "S607"]   # subprocess usage in dev scripts
+"custom_components/gaggle/const.py" = ["S105"]   # CONF_*_TOKEN strings are key names, not secrets
+"custom_components/gaggle/coordinator.py" = ["PLC0415"]   # recorder imports must be local — optional HA component
+"custom_components/gaggle/diagnostics.py" = ["PLC0415"]   # same recorder-import constraint as coordinator.py
+
+[tool.ruff.lint.mccabe]
+# Gate new code at 12. The single function above this today,
+# coordinator._fetch_range (13), carries a rationale'd noqa and a debt issue
+# to decompose it — do not raise this number to absorb new offenders.
+max-complexity = 12
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["custom_components.gaggle"]
+
+# ---------- mypy ----------
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_decorators = false  # HA decorators are loosely typed
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["homeassistant.*", "pytest_homeassistant_custom_component.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+# ---------- pytest ----------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=custom_components/gaggle",
+    "--cov-report=term-missing",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:homeassistant.*",
+    "ignore::ResourceWarning",  # aiohttp GC timing between tests is non-deterministic
+]
+
+[tool.coverage.run]
+source = ["custom_components/gaggle"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

@@ -1,0 +1,410 @@
+"""AGL Energy API client.
+
+Architecture:
+  AglAuth   — manages the Auth0 refresh-token grant, token rotation, and
+              proactive refresh. Persists the rotated refresh token via a
+              callback so the integration doesn't lock itself out.
+  AglClient — thin async HTTP wrapper. Adds required headers (Authorization,
+              Client-Flavor, User-Agent) and retries once on 401 by forcing
+              an auth refresh.
+
+TLS pinning is handled by the `aiohttp.ClientSession`'s connector, not by
+this module. See `agl/pinning.py::GagglePinningConnector` — it captures the
+leaf-cert SPKI on every new connection and (optionally) invokes a pin-check
+callback for TOFU validation. This module is connector-agnostic.
+
+Token endpoint: POST https://secure.agl.com.au/oauth/token (grant=refresh_token).
+Access tokens expire in 900 s (15 min); refresh when exp - now < 120 s (2 min).
+
+Gas usage endpoints: nobody has captured AGL's real gas usage API traffic
+yet (Phase 0, see docs/gas-api.md). `async_get_gas_usage_summary` and
+`async_get_gas_usage_hourly[_previous]` are therefore explicit
+NotImplementedError stubs — NOT calls to the Electricity endpoint. Do not
+"fix" them by pointing at `/Electricity/...`; that would silently report
+electricity data as gas data.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import re
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+import aiohttp
+
+from ..const import (
+    AGL_ACCEPT_FEATURES,
+    AGL_AUTH0_CLIENT,
+    AGL_AUTH_HOST,
+    AGL_CLIENT_DEVICE,
+    AGL_CLIENT_FLAVOR,
+    AGL_CLIENT_ID,
+    AGL_USER_AGENT,
+)
+from .models import (
+    Contract,
+    PlanRates,
+    TokenSet,
+)
+from .parser import (
+    parse_overview,
+    parse_plan,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from datetime import date
+
+    from .models import BillPeriod, IntervalReading
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _redact_body(text: str) -> str:
+    """Debug-safe body snippet: redact token-like values BEFORE truncating.
+
+    Truncating first can cut a long token before its closing quote, so the
+    redaction pattern would miss it and leak the prefix (Class A rule,
+    docs/threat-model.md §2). Users paste debug logs into public issues.
+    """
+    text = re.sub(
+        r'"([a-z_]*token)"\s*:\s*"[^"]*"',
+        r'"\1":"«redacted»"',
+        text,
+    )
+    # Bodies can echo the request path or identifier fields (Class B):
+    # apply the same digit-segment and keyed-identifier redactions.
+    text = re.sub(r"/(\d{2,8})(\d{4})(?=[/?\"]|$)", r"/…\2", text)
+    text = re.sub(
+        r'"((?:account|contract)_?[Nn]umber)"\s*:\s*"?(?:\d{2,8})(\d{4})',
+        r'"\1":"…\2',
+        text,
+    )
+    return text[:200]
+
+
+def _redact_url(url: str) -> str:
+    """Debug-safe URL: usage/plan paths embed the contract number (Class B).
+
+    Long digit runs in path segments are reduced to their last 4 digits.
+    """
+    return re.sub(r"/(\d{2,8})(\d{4})(?=/|\?|$)", r"/…\2", url)
+
+
+# Failures below the HTTP-status layer. Every coordinator catch site is
+# designed around the AGLError family; letting these escape raw crashes the
+# whole update cycle instead of degrading a single poll gracefully.
+# TimeoutError covers asyncio.TimeoutError (alias since Python 3.11).
+_TRANSPORT_ERRORS = (TimeoutError, aiohttp.ClientError)
+
+# Refresh when this many seconds remain before expiry.
+_REFRESH_MARGIN_SECONDS = 120
+
+TOKEN_ENDPOINT = f"{AGL_AUTH_HOST}/oauth/token"
+
+
+class AGLError(Exception):
+    """Base class for AGL API errors."""
+
+
+class AGLTransportError(AGLError):
+    """Below-HTTP failure: network error, timeout, or non-JSON body.
+
+    Distinct from a plain AGLError so per-day backfill fetchers can HALT the
+    chunk (transport failures are endpoint-wide and transient — retrying the
+    whole chunk next cycle is right) instead of SKIPPING the day, which would
+    advance the resume point past it and leave a permanent hole (Codex on
+    #157). Still an AGLError, so every existing catch site behaves.
+    """
+
+
+class AGLAuthError(AGLError):
+    """Auth failure — refresh token invalid / revoked; reauth required."""
+
+
+class AGLRateLimitError(AGLError):
+    """HTTP 429 — caller should back off before retrying."""
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _decode_jwt_exp(token: str) -> int | None:
+    """Return the `exp` claim from a JWT, or None if it cannot be decoded."""
+    try:
+        payload_b64 = token.split(".")[1]
+        # Base64url — pad to multiple of 4.
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return int(payload["exp"])
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# AglAuth — Auth0 token lifecycle
+# ---------------------------------------------------------------------------
+
+
+class AglAuth:
+    """Manages Auth0 refresh-token grant for AGL.
+
+    - Proactively refreshes when the access token is within
+      _REFRESH_MARGIN_SECONDS of expiry.
+    - Rotates the refresh token on every exchange and calls
+      `persist_callback(new_refresh_token)` so the caller can persist it.
+      Failure to persist = lockout within one cycle.
+    """
+
+    def __init__(
+        self,
+        refresh_token: str,
+        persist_callback: Callable[[str], Awaitable[None]],
+    ) -> None:
+        self._refresh_token = refresh_token
+        self._persist = persist_callback
+        self._token_set: TokenSet | None = None
+
+    async def async_ensure_valid_token(self, session: aiohttp.ClientSession) -> str:
+        """Return a live access token, refreshing proactively if needed."""
+        if self._token_set is not None:
+            exp = _decode_jwt_exp(self._token_set.access_token)
+            now = int(datetime.now(tz=UTC).timestamp())
+            if exp is not None and (exp - now) >= _REFRESH_MARGIN_SECONDS:
+                return self._token_set.access_token
+
+        return await self.async_force_refresh(session)
+
+    async def async_force_refresh(self, session: aiohttp.ClientSession) -> str:
+        """Force a token refresh. Persists the rotated refresh token.
+
+        Raises AGLAuthError on 401 / invalid_grant.
+        Returns the new access token.
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+            "Accept-Language": "en-AU,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Client-Flavor": AGL_CLIENT_FLAVOR,
+            "User-Agent": AGL_USER_AGENT,
+            "auth0-client": AGL_AUTH0_CLIENT,
+        }
+        body = {
+            "grant_type": "refresh_token",
+            "client_id": AGL_CLIENT_ID,
+            "refresh_token": self._refresh_token,
+        }
+
+        try:
+            async with session.post(TOKEN_ENDPOINT, json=body, headers=headers) as resp:
+                if resp.status == 401:
+                    raise AGLAuthError("Token refresh rejected (401) — reauth required")
+                if resp.status != 200:
+                    # Auth0 error bodies can include diagnostic fields
+                    # (mfa_token, error_description, internal trace IDs); keep
+                    # them out of the exception that propagates to
+                    # ConfigEntryAuthFailed → HA Persistent Notifications.
+                    # Body lives in DEBUG only — and even there, token-like
+                    # values are redacted first: users enable debug logging
+                    # while troubleshooting and paste logs into public issues
+                    # (Class A rule, docs/threat-model.md §2).
+                    text = await resp.text()
+                    _LOGGER.debug(
+                        "Token refresh non-200 body: %s",
+                        _redact_body(text),
+                    )
+                    raise AGLAuthError(f"Token refresh failed HTTP {resp.status}")
+                data: dict[str, Any] = await resp.json(content_type=None)
+        except _TRANSPORT_ERRORS as err:
+            # A network blip is NOT an auth failure — wrap as retryable
+            # AGLError, never AGLAuthError (which triggers the reauth flow)
+            # and never a raw escape (which crashes the cycle, #151).
+            raise AGLTransportError(
+                f"transport error during token refresh: {type(err).__name__}"
+            ) from err
+        except json.JSONDecodeError as err:
+            raise AGLTransportError("non-JSON response from token endpoint") from err
+
+        error = data.get("error")
+        if error:
+            raise AGLAuthError(f"Token refresh error: {error}")
+
+        access_token: str = data["access_token"]
+        new_refresh_token: str = data["refresh_token"]
+        expires_in: int = int(data.get("expires_in", 900))
+        expires_at = datetime.fromtimestamp(
+            int(datetime.now(tz=UTC).timestamp()) + expires_in,
+            tz=UTC,
+        )
+
+        self._token_set = TokenSet(
+            access_token=access_token,
+            refresh_token=new_refresh_token,
+            expires_at=expires_at,
+            id_token=data.get("id_token", ""),
+        )
+        self._refresh_token = new_refresh_token
+        await self._persist(new_refresh_token)
+
+        _LOGGER.info(
+            "AGL token refreshed; expires_at=%s",
+            expires_at.isoformat(),
+        )
+        return access_token
+
+
+# ---------------------------------------------------------------------------
+# AglClient — data API wrapper
+# ---------------------------------------------------------------------------
+
+
+class AglClient:
+    """Async client for the AGL platform data API."""
+
+    BASE_URL = "https://api.platform.agl.com.au/mobile/bff"
+
+    def __init__(
+        self,
+        auth: AglAuth,
+        session: aiohttp.ClientSession,
+    ) -> None:
+        self._auth = auth
+        self._session = session
+
+    @property
+    def _default_headers(self) -> dict[str, str]:
+        return {
+            "Client-Flavor": AGL_CLIENT_FLAVOR,
+            "Client-Device": AGL_CLIENT_DEVICE,
+            "User-Agent": AGL_USER_AGENT,
+            "Accept": "*/*",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-AU,en;q=0.9",
+            "Accept-Features": AGL_ACCEPT_FEATURES,
+        }
+
+    async def _get(self, url: str) -> Any:
+        """GET a URL with auth, retrying once on 401.
+
+        Transport- and parse-level failures (network errors, timeouts, a 200
+        with a non-JSON body such as an Akamai challenge page) are wrapped
+        into AGLError so callers see the one exception family every catch
+        site was designed around (#151). Typed AGL errors pass through
+        unchanged.
+        """
+        try:
+            return await self._get_raw(url)
+        except _TRANSPORT_ERRORS as err:
+            raise AGLTransportError(f"transport error: {type(err).__name__}") from err
+        except json.JSONDecodeError as err:
+            # Body may be an Akamai/HTML page; never surface it (#151).
+            raise AGLTransportError("non-JSON response from AGL endpoint") from err
+
+    async def _get_raw(self, url: str) -> Any:
+        token = await self._auth.async_ensure_valid_token(self._session)
+        headers = {**self._default_headers, "Authorization": f"Bearer {token}"}
+
+        async with self._session.get(url, headers=headers) as resp:
+            if resp.status == 429:
+                raise AGLRateLimitError(f"Rate limited (HTTP {resp.status})")
+            if resp.status == 401:
+                _LOGGER.debug("Got 401 on %s; forcing token refresh", _redact_url(url))
+            elif resp.status >= 400:
+                # URL contains contract_number (PII) and body may carry
+                # AGL-side diagnostics; keep both in DEBUG only.
+                text = await resp.text()
+                _LOGGER.debug(
+                    "HTTP %s on %s body: %s",
+                    resp.status,
+                    _redact_url(url),
+                    _redact_body(text),
+                )
+                raise AGLError(f"HTTP {resp.status} fetching AGL data")
+            else:
+                return await resp.json(content_type=None)
+
+        # Only reached on 401 — force refresh and retry once.
+        token = await self._auth.async_force_refresh(self._session)
+        headers = {**self._default_headers, "Authorization": f"Bearer {token}"}
+
+        async with self._session.get(url, headers=headers) as resp2:
+            if resp2.status == 401:
+                raise AGLAuthError("Still 401 after token refresh")
+            if resp2.status == 429:
+                raise AGLRateLimitError(f"Rate limited (HTTP {resp2.status})")
+            if resp2.status >= 400:
+                text = await resp2.text()
+                _LOGGER.debug(
+                    "HTTP %s on %s body (post-refresh): %s",
+                    resp2.status,
+                    _redact_url(url),
+                    _redact_body(text),
+                )
+                raise AGLError(f"HTTP {resp2.status} fetching AGL data")
+            return await resp2.json(content_type=None)
+
+    # --- Discovery ---
+
+    async def async_get_overview(self) -> list[Contract]:
+        """Fetch /api/v3/overview and return a Contract per fuel service."""
+        url = f"{self.BASE_URL}/api/v3/overview"
+        data = await self._get(url)
+        return parse_overview(data)
+
+    # --- Usage (gas) ---
+    #
+    # Nobody has captured AGL's real gas usage API traffic yet — that capture
+    # (Phase 0, see docs/gas-api.md) is a prerequisite for implementing these.
+    # They deliberately do NOT call `/usage/smart/Electricity/...`: doing so
+    # would silently report electricity readings as gas data, which is worse
+    # than not implementing the feature at all.
+
+    async def async_get_gas_usage_summary(self, contract_number: str) -> BillPeriod:
+        """Fetch the current gas billing-period summary (endpoint TBD).
+
+        Stub — raises NotImplementedError until Phase 0 confirms the real
+        gas usage-summary endpoint path and response shape.
+        """
+        raise NotImplementedError(
+            "Gas usage endpoint not yet captured — see docs/gas-api.md (Phase 0)"
+        )
+
+    async def async_get_gas_usage_hourly(
+        self, contract_number: str, day: date
+    ) -> list[IntervalReading]:
+        """Fetch one day of gas usage intervals (endpoint TBD).
+
+        Stub — raises NotImplementedError until Phase 0 confirms the real
+        gas interval-usage endpoint path, response envelope, and unit
+        (MJ vs m³; see GAS_USAGE_UNIT in const.py).
+        """
+        raise NotImplementedError(
+            "Gas usage endpoint not yet captured — see docs/gas-api.md (Phase 0)"
+        )
+
+    async def async_get_gas_usage_hourly_previous(
+        self, contract_number: str, day: date
+    ) -> list[IntervalReading]:
+        """Fetch one day of gas usage intervals for a previous bill period.
+
+        Stub — same reason as `async_get_gas_usage_hourly`.
+        """
+        raise NotImplementedError(
+            "Gas usage endpoint not yet captured — see docs/gas-api.md (Phase 0)"
+        )
+
+    # --- Plan ---
+
+    async def async_get_plan(self, contract_number: str) -> PlanRates:
+        """Fetch /api/v2/plan/energy/{contractNumber} plan rates."""
+        url = f"{self.BASE_URL}/api/v2/plan/energy/{contract_number}"
+        data = await self._get(url)
+        return parse_plan(data)

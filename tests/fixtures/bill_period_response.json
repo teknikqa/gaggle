@@ -1,0 +1,24 @@
+{
+  "resourceType": "electricity",
+  "billPeriod": {
+    "state": "valid",
+    "current": {
+      "start": {
+        "day": "1",
+        "month": "Jan",
+        "date": "2024-01-01"
+      },
+      "end": {
+        "day": "31",
+        "month": "Jan",
+        "date": "2024-01-31"
+      },
+      "usage": {
+        "title": "Usage So Far",
+        "amount": "$45.00",
+        "quantity": "200 kWh"
+      }
+    }
+  },
+  "additionalLabelValue": "$90.00"
+}

@@ -1,0 +1,40 @@
+version: 2
+
+# Grouped weekly batches (2026-07 dependency review): the ungrouped config
+# produced ~8 PRs/week that were hand-batched anyway (see the
+# `chore(deps): roll Dependabot batch` commits). One PR per ecosystem per
+# week is the same signal at an eighth of the toil. Runtime risk context:
+# manifest.json ships zero Python requirements, so every pip bump here is
+# dev-only and never reaches a user's HA install.
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    groups:
+      dev-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # pytest's effective version is dictated by the exact pin inside
+      # pytest-homeassistant-custom-component (e.g. 0.13.346 pins
+      # pytest==9.0.3). An independent pytest floor bump is meaningless at
+      # best and deadlocks the resolver at worst — proven twice (#120,
+      # #170). pytest upgrades arrive automatically when phcc bumps its
+      # internal pin.
+      - dependency-name: "pytest"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    groups:
+      actions:
+        patterns:
+          - "*"

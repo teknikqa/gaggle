@@ -1,0 +1,22 @@
+{
+  "accounts": [
+    {
+      "contracts": [
+        {
+          "contractNumber": "9999999999",
+          "title": "1 Jan - 31 Jan 2024",
+          "label": "Cost So Far",
+          "labelValue": "$45.00",
+          "additionalLabel": "Bill Projection",
+          "additionalLabelValue": "$90.00",
+          "meterType": "smart",
+          "type": "electricityContract",
+          "status": "active"
+        }
+      ],
+      "address": "1 Sample Street SUBURB QLD 4000",
+      "type": "energyAccount",
+      "accountNumber": "1234567890"
+    }
+  ]
+}

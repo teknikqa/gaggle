@@ -1,0 +1,447 @@
+"""Tests for AglAuth and AglClient."""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiohttp
+import pytest
+
+from custom_components.gaggle.agl.client import (
+    AglAuth,
+    AGLAuthError,
+    AglClient,
+    AGLError,
+    AGLRateLimitError,
+)
+from custom_components.gaggle.agl.models import Contract, PlanRates
+
+# ---------------------------------------------------------------------------
+# Synthetic response fixtures (same shape as live AGL API responses)
+# ---------------------------------------------------------------------------
+
+_OVERVIEW_RESPONSE = {
+    "accounts": [
+        {
+            "contracts": [
+                {
+                    "contractNumber": "9999999999",
+                    "type": "electricityContract",
+                    "status": "active",
+                    "meterType": "smart",
+                    "additionalLabelValue": "$90.00",
+                }
+            ],
+            "address": "1 Sample Street SUBURB QLD 4000",
+            "type": "energyAccount",
+            "accountNumber": "1234567890",
+        }
+    ]
+}
+
+_PLAN_RESPONSE = {
+    "contractNumber": "9999999999",
+    "productName": "Smart Saver",
+    "gstInclusiveRates": [
+        {"kind": "header", "title": "T11 General Usage**"},
+        {
+            "kind": "detail",
+            "title": "First 379 kWh",
+            "type": "c/kWh",
+            "price": 33.792,
+            "validTo": "9999-12-31",
+        },
+        {
+            "kind": "detail",
+            "title": "Thereafter",
+            "type": "c/kWh",
+            "price": 33.792,
+            "validTo": "9999-12-31",
+        },
+        {
+            "kind": "detail",
+            "title": "Supply charge",
+            "type": "c/day",
+            "price": 131.714,
+            "validTo": "9999-12-31",
+        },
+    ],
+}
+
+_TOKEN_RESPONSE = {
+    "access_token": "eyFAKE.eyFAKE.sig",
+    "refresh_token": "v1.rotated_token_456",
+    "id_token": "eyFAKE.id.sig",
+    "expires_in": 900,
+    "token_type": "Bearer",
+}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_session(response_data: dict, status: int = 200) -> MagicMock:
+    """Return a mock aiohttp.ClientSession that returns response_data as JSON."""
+    mock_resp = AsyncMock()
+    mock_resp.status = status
+    mock_resp.json = AsyncMock(return_value=response_data)
+    mock_resp.text = AsyncMock(return_value=str(response_data))
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    session = MagicMock()
+    session.post = MagicMock(return_value=mock_resp)
+    session.get = MagicMock(return_value=mock_resp)
+    session.request = MagicMock(return_value=mock_resp)
+    return session
+
+
+# ---------------------------------------------------------------------------
+# AglAuth tests
+# ---------------------------------------------------------------------------
+
+
+class TestAglAuth:
+    async def test_force_refresh_returns_access_token(self) -> None:
+        persisted: list[str] = []
+
+        async def persist(token: str) -> None:
+            persisted.append(token)
+
+        session = _make_session(_TOKEN_RESPONSE)
+        auth = AglAuth("v1.initial", persist)
+        token = await auth.async_force_refresh(session)
+
+        assert token == "eyFAKE.eyFAKE.sig"
+        assert persisted == ["v1.rotated_token_456"]
+        assert auth._refresh_token == "v1.rotated_token_456"
+
+    async def test_ensure_valid_token_uses_cached_when_fresh(self) -> None:
+        """If token is fresh (mocked exp far in future), skip refresh."""
+        persisted: list[str] = []
+
+        async def persist(token: str) -> None:
+            persisted.append(token)
+
+        auth = AglAuth("v1.initial", persist)
+
+        # Inject a fake TokenSet with a JWT whose exp is far in the future.
+        # We can't easily make a real JWT, so we patch _decode_jwt_exp instead.
+        from custom_components.gaggle.agl.models import TokenSet
+
+        future_exp = int(datetime.now(tz=UTC).timestamp()) + 3600
+        auth._token_set = TokenSet(
+            access_token="cached_token",
+            refresh_token="v1.existing",
+            expires_at=datetime.fromtimestamp(future_exp + 900, tz=UTC),
+        )
+
+        with patch(
+            "custom_components.gaggle.agl.client._decode_jwt_exp",
+            return_value=future_exp,
+        ):
+            session = MagicMock()
+            token = await auth.async_ensure_valid_token(session)
+
+        assert token == "cached_token"
+        assert persisted == []  # no refresh happened
+
+    async def test_force_refresh_raises_auth_error_on_401(self) -> None:
+        session = _make_session({}, status=401)
+
+        async def persist(token: str) -> None:
+            pass
+
+        auth = AglAuth("v1.initial", persist)
+        with pytest.raises(AGLAuthError):
+            await auth.async_force_refresh(session)
+
+    async def test_force_refresh_redacts_body_from_exception(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """SAST-003: Auth0 error body must stay in DEBUG logs, not in the raised exception.
+
+        ConfigEntryAuthFailed(str(err)) reaches HA Persistent Notifications;
+        Auth0 error bodies may include diagnostic fields that should not surface
+        there.
+        """
+        # Synthetic body: must not look enough like a real JWT to trip secret
+        # scanners, but still contain a marker we can grep for in assertions.
+        sensitive_body = {
+            "error": "rate_limited",
+            "error_description": "MARKER-SHOULD-NOT-LEAK",
+        }
+        session = _make_session(sensitive_body, status=429)
+
+        async def persist(token: str) -> None:
+            pass
+
+        auth = AglAuth("v1.initial", persist)
+        with (
+            caplog.at_level("DEBUG", logger="custom_components.gaggle.agl.client"),
+            pytest.raises(AGLAuthError) as exc_info,
+        ):
+            await auth.async_force_refresh(session)
+
+        # The exception message must mention the status code but NOT the body.
+        assert "429" in str(exc_info.value)
+        assert "MARKER-SHOULD-NOT-LEAK" not in str(exc_info.value)
+        assert "rate_limited" not in str(exc_info.value)
+        # Body was logged at DEBUG.
+        assert any("MARKER-SHOULD-NOT-LEAK" in r.message for r in caplog.records)
+
+    async def test_force_refresh_raises_on_error_field(self) -> None:
+        session = _make_session(
+            {"error": "invalid_grant", "error_description": "Refresh token expired"},
+            status=200,
+        )
+
+        async def persist(token: str) -> None:
+            pass
+
+        auth = AglAuth("v1.initial", persist)
+        with pytest.raises(AGLAuthError, match="invalid_grant"):
+            await auth.async_force_refresh(session)
+
+
+# ---------------------------------------------------------------------------
+# AglClient tests
+# ---------------------------------------------------------------------------
+
+
+class TestAglClient:
+    def _make_client(
+        self, response_data: dict, status: int = 200
+    ) -> tuple[AglClient, MagicMock]:
+        session = _make_session(response_data, status)
+        auth = AglAuth("v1.tok", AsyncMock())
+        auth._token_set = MagicMock()
+        auth._token_set.access_token = "test_access_token"
+
+        with patch(
+            "custom_components.gaggle.agl.client.AglAuth.async_ensure_valid_token",
+            new_callable=AsyncMock,
+            return_value="test_access_token",
+        ):
+            client = AglClient(auth, session)
+        return client, session
+
+    async def test_get_overview_parses_contracts(self) -> None:
+        client, _ = self._make_client(_OVERVIEW_RESPONSE)
+        with patch.object(
+            client._auth,
+            "async_ensure_valid_token",
+            new_callable=AsyncMock,
+            return_value="tok",
+        ):
+            contracts = await client.async_get_overview()
+
+        assert len(contracts) == 1
+        c = contracts[0]
+        assert isinstance(c, Contract)
+        assert c.contract_number == "9999999999"
+        assert c.account_number == "1234567890"
+        assert c.fuel_type == "electricityContract"
+
+    async def test_get_plan_parses_rates(self) -> None:
+        client, _ = self._make_client(_PLAN_RESPONSE)
+        with patch.object(
+            client._auth,
+            "async_ensure_valid_token",
+            new_callable=AsyncMock,
+            return_value="tok",
+        ):
+            plan = await client.async_get_plan("9999999999")
+
+        assert isinstance(plan, PlanRates)
+        assert plan.product_name == "Smart Saver"
+        assert plan.supply_charge_cents_per_day == pytest.approx(131.714)
+        assert any(r.get("type") == "c/kWh" for r in plan.unit_rates)
+
+    async def test_rate_limit_raises(self) -> None:
+        client, _ = self._make_client({}, status=429)
+        with (
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLRateLimitError),
+        ):
+            await client.async_get_overview()
+
+    async def test_http_error_raises_agl_error(self) -> None:
+        client, _ = self._make_client({}, status=500)
+        with (
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLError),
+        ):
+            await client.async_get_overview()
+
+    async def test_non_json_200_body_raises_agl_error(self) -> None:
+        """A 200 with a non-JSON body (e.g. an Akamai challenge page) must
+        become AGLError, not a raw JSONDecodeError that crashes the update
+        cycle (#151)."""
+        client, session = self._make_client({}, status=200)
+        session.get.return_value.json = AsyncMock(
+            side_effect=json.JSONDecodeError("Expecting value", "<html>", 0)
+        )
+        with (
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLError, match="non-JSON"),
+        ):
+            await client.async_get_overview()
+
+    async def test_transport_error_raises_agl_error(self) -> None:
+        """aiohttp transport failures wrap into AGLError (#151)."""
+        client, session = self._make_client({}, status=200)
+        session.get = MagicMock(side_effect=aiohttp.ClientError("conn reset"))
+        with (
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLError, match="transport error"),
+        ):
+            await client.async_get_overview()
+
+    async def test_timeout_raises_agl_error(self) -> None:
+        """TimeoutError (alias of asyncio.TimeoutError) wraps into AGLError
+        (#151)."""
+        client, session = self._make_client({}, status=200)
+        session.get = MagicMock(side_effect=TimeoutError())
+        with (
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLError, match="transport error"),
+        ):
+            await client.async_get_overview()
+
+    async def test_force_refresh_transport_error_is_not_auth_error(self) -> None:
+        """A network blip during token refresh must be retryable AGLError,
+        never AGLAuthError (which triggers the reauth flow) and never a raw
+        escape (#151)."""
+        session = MagicMock()
+        session.post = MagicMock(side_effect=aiohttp.ClientError("dns fail"))
+        auth = AglAuth("v1.tok", AsyncMock())
+        with pytest.raises(AGLError, match="transport error") as exc_info:
+            await auth.async_force_refresh(session)
+        assert not isinstance(exc_info.value, AGLAuthError)
+
+    async def test_http_error_keeps_url_and_body_out_of_exception(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """SAST-004: contract_number-bearing URL + response body stay in DEBUG."""
+        sensitive_body = {"detail": "internal MARKER2-SHOULD-NOT-LEAK"}
+        client, _ = self._make_client(sensitive_body, status=500)
+
+        with (
+            caplog.at_level("DEBUG", logger="custom_components.gaggle.agl.client"),
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLError) as exc_info,
+        ):
+            # contract_number is part of the URL path
+            await client.async_get_plan("9999999999_PII")
+
+        msg = str(exc_info.value)
+        assert "500" in msg
+        assert "9999999999_PII" not in msg  # URL not in exception
+        assert "MARKER2-SHOULD-NOT-LEAK" not in msg  # body not in exception
+        # But both are present in DEBUG.
+        assert any("9999999999_PII" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #32: stale, never-called AglClient methods are gone
+# ---------------------------------------------------------------------------
+
+
+def test_unused_methods_removed_from_client() -> None:
+    """Belt-and-braces: re-introducing these without a caller is a regression."""
+    assert not hasattr(AglClient, "async_get_servicehub")
+    assert not hasattr(AglClient, "async_get_usage_daily")
+    assert not hasattr(AglClient, "async_close")
+    # Electricity/solar usage-fetch methods are gone entirely (gaggle is
+    # gas-only) — not merely stubbed under their old names.
+    assert not hasattr(AglClient, "async_get_usage_summary")
+    assert not hasattr(AglClient, "async_get_usage_hourly")
+    assert not hasattr(AglClient, "async_get_usage_hourly_previous")
+    assert not hasattr(AglClient, "async_get_solar_hourly")
+
+
+# ---------------------------------------------------------------------------
+# Gas usage endpoints — explicit stubs pending Phase 0 capture
+# (docs/gas-api.md). Must raise NotImplementedError, never silently call an
+# Electricity endpoint under a new name.
+# ---------------------------------------------------------------------------
+
+
+class TestGasUsageStubs:
+    def _make_client(self) -> AglClient:
+        auth = AglAuth("v1.tok", AsyncMock())
+        session = MagicMock()
+        return AglClient(auth, session)
+
+    async def test_gas_usage_summary_raises_not_implemented(self) -> None:
+        client = self._make_client()
+        with pytest.raises(NotImplementedError):
+            await client.async_get_gas_usage_summary("9999999999")
+
+    async def test_gas_usage_hourly_raises_not_implemented(self) -> None:
+        from datetime import date
+
+        client = self._make_client()
+        with pytest.raises(NotImplementedError):
+            await client.async_get_gas_usage_hourly("9999999999", date(2026, 7, 1))
+
+    async def test_gas_usage_hourly_previous_raises_not_implemented(self) -> None:
+        from datetime import date
+
+        client = self._make_client()
+        with pytest.raises(NotImplementedError):
+            await client.async_get_gas_usage_hourly_previous(
+                "9999999999", date(2026, 7, 1)
+            )
+
+    async def test_stubs_never_touch_the_session(self) -> None:
+        """A stub that accidentally made an HTTP call would be the exact
+        "silently reports electricity as gas" footgun the stubs exist to
+        prevent — assert the session is never touched."""
+        from datetime import date
+
+        client = self._make_client()
+        for coro in (
+            client.async_get_gas_usage_summary("9999999999"),
+            client.async_get_gas_usage_hourly("9999999999", date(2026, 7, 1)),
+            client.async_get_gas_usage_hourly_previous("9999999999", date(2026, 7, 1)),
+        ):
+            with pytest.raises(NotImplementedError):
+                await coro
+        client._session.get.assert_not_called()
+        client._session.post.assert_not_called()
