@@ -3,24 +3,20 @@
 Reference response shapes are mirrored under tests/fixtures/ (anonymised).
 Field semantics are documented in AGENTS.md §AGL API — Key Facts.
 
-Critical fields:
-  - Interval kWh:  consumption.quantity        (outer — matches AEMO/CSV)
-  - Interval cost: consumption.amount          (outer — AUD for the slot)
-  - Interval dt:   dateTime field is slot-start in UTC
-  - Contract ID:   contractNumber (not accountNumber, not accountId)
+Confirmed real shapes (Phase 0 capture, 2026-07-30, see docs/gas-api.md):
 
-The inner ``consumption.values.{amount,quantity}`` block is a DPI/chart-scaled
-helper (the two sub-fields are always equal in real responses) and is NOT
-the metered value. Reading it undercounts kWh by 4-73% with no consistent
-ratio — confirmed by reconciling 11 mitm /Hourly captures against an AGL
-"MyUsageData" portal CSV export, 2026-05-12.
-
-``parse_interval_readings`` is not currently wired to any ``AglClient``
-method — gaggle's gas usage-fetch endpoints are explicit
-``NotImplementedError`` stubs pending a real capture (Phase 0, see
-docs/gas-api.md). It is kept here, generic and fuzz-tested, in case the real
-gas endpoint reuses this envelope; nothing should assume it does without a
-capture proving it.
+  - Contract discovery: ``GET /v3/overview`` — fuel-agnostic, unchanged from
+    the sibling electricity integration.
+  - Plan/rates: ``GET /v2/plan/energy/{contractNumber}`` — fuel-agnostic
+    envelope; gas plans use tiered/block ``c/MJ`` pricing (multiple rows),
+    not a single flat rate.
+  - Gas usage: ``GET /v2/usage/basic/Gas/{contractNumber}`` — a BASIC
+    (non-smart) gas meter has NO interval or daily data at all. The current
+    billing period is an estimate + a projection (not a meter read); only
+    ``pastUsage.items[]`` (already-billed, completed periods) carries real
+    totals, at bimonthly granularity. There is no electricity-equivalent
+    ``/Hourly`` shape for this endpoint — do not assume one exists for a
+    smart gas meter without a capture proving it.
 """
 
 from __future__ import annotations
@@ -30,7 +26,7 @@ import math
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
-from .models import BillPeriod, Contract, DailyReading, IntervalReading, PlanRates
+from .models import Contract, GasPastPeriod, GasUsageSummary, PlanRates
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,125 +118,89 @@ def parse_overview(data: dict[str, Any]) -> list[Contract]:
     return contracts
 
 
-def parse_interval_readings(data: dict[str, Any]) -> list[IntervalReading]:
-    """Parse a /Hourly-shaped response into 30-min interval readings.
+def _label_to_float(raw: Any) -> float:
+    """Parse a display label ('$159.20', '3,441.21 MJ', or '') into a float.
 
-    Filters out items with type='none' or type='pending' (future/unavailable
-    slots) and placeholder slots where kWh and cost are both zero (AGL returns
-    these for days where AEMO meter reads have not yet been delivered, even with
-    a non-``none`` type — they would otherwise create phantom flat rows in the
-    statistics table that the resume logic would never re-check).
-    dateTime is slot-start UTC; kwh from consumption.quantity (outer).
-
-    Not currently called by any AglClient method — see the module docstring.
+    The current-period fields in usage.basic.Gas only carry formatted
+    display strings, not a numeric sibling field (unlike past-period items,
+    which have both). An empty string — seen for an in-progress period's
+    projection quantity — degrades to 0.0, never crashes (fuzz-enforced,
+    same class of bug as the old whitespace-only .split()[0] IndexError
+    this replaces).
     """
-    _skip_types = {"none", "pending"}
-    readings: list[IntervalReading] = []
-    for section_raw in _as_list(_as_dict(data).get("sections")):
-        for item_raw in _as_list(_as_dict(section_raw).get("items")):
-            item = _as_dict(item_raw)
-            block = _as_dict(item.get("consumption"))
-            rate_type = block.get("type", "none")
-            # A non-str type can't name a series (and an unhashable one
-            # would blow up the set membership) — treat as malformed.
-            if not isinstance(rate_type, str) or rate_type in _skip_types:
-                continue
-            dt_str = item.get("dateTime", "")
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=UTC)
-            except ValueError, AttributeError:
-                continue
-            kwh = _safe_float(block.get("quantity"))
-            cost_aud = _safe_float(block.get("amount"))
-            if kwh == 0.0 and cost_aud == 0.0:
-                continue
-            readings.append(
-                IntervalReading(
-                    dt=dt,
-                    kwh=kwh,
-                    cost_aud=cost_aud,
-                    rate_type=rate_type,
-                )
-            )
-    return readings
+    s = _as_str(raw).replace("$", "").replace(",", "")
+    parts = s.split()
+    return _safe_float(parts[0]) if parts else 0.0
 
 
-def parse_daily_readings(data: dict[str, Any]) -> list[DailyReading]:
-    """Parse /Daily response.
-
-    Response uses sections[].items[] — same envelope as /Hourly.
-    dateTime is day-start in UTC (time component is 00:00:00Z).
-    kWh from consumption.quantity (outer — see module docstring).
-    """
-    readings: list[DailyReading] = []
-    for section_raw in _as_list(_as_dict(data).get("sections")):
-        for item_raw in _as_list(_as_dict(section_raw).get("items")):
-            item = _as_dict(item_raw)
-            consumption = _as_dict(item.get("consumption"))
-            rate_type = consumption.get("type")
-            # str-only membership test: an unhashable type value (dict/list)
-            # must not raise; absent/odd types keep the original keep-path.
-            if isinstance(rate_type, str) and rate_type in {"none", "pending"}:
-                continue
-            dt_str = item.get("dateTime", "")
-            try:
-                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                day: date = dt.date()
-            except ValueError, AttributeError:
-                continue
-            kwh = _safe_float(consumption.get("quantity"))
-            cost_aud = _safe_float(consumption.get("amount"))
-            if kwh == 0.0 and cost_aud == 0.0:
-                continue
-            readings.append(DailyReading(day=day, kwh=kwh, cost_aud=cost_aud))
-    return readings
+def _as_nonneg_int(raw: Any) -> int:
+    """Coerce to a non-negative int, else 0. bool is excluded (is-a-int)."""
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0:
+        return raw
+    return 0
 
 
-def parse_bill_period(data: dict[str, Any]) -> BillPeriod:
-    """Parse /usage summary response.
+def parse_gas_usage_basic(data: dict[str, Any]) -> GasUsageSummary:
+    """Parse GET /v2/usage/basic/Gas/{contractNumber} — confirmed real shape.
 
-    Path: data["billPeriod"]["current"].
+    A basic (non-smart) gas meter has no interval data; this is the only
+    usage endpoint that exists for one. The current period's cost/usage are
+    an ESTIMATE and the bill total a PROJECTION — not real reads — so they
+    are surfaced as sensor values only, never imported as statistics.
+    ``past_periods`` (pastUsage.items[]) carries real, already-billed
+    totals via the numeric usageAmount/usageQuantity fields (preferred over
+    the sibling formatted amount/quantity display strings, which need
+    string parsing and exist mainly for the app's own UI).
     """
     payload = _as_dict(data)
-    current = _as_dict(_as_dict(payload.get("billPeriod")).get("current"))
+    bill_period = _as_dict(payload.get("billPeriod"))
 
-    start_str = _as_str(_as_dict(current.get("start")).get("date"))
-    end_str = _as_str(_as_dict(current.get("end")).get("date"))
-    today_utc = datetime.now(UTC).date()
+    today = datetime.now(UTC).date()
+    start_str = _as_str(_as_dict(bill_period.get("start")).get("date"))
+    end_str = _as_str(_as_dict(bill_period.get("end")).get("date"))
     try:
-        start = date.fromisoformat(start_str)
+        period_start = date.fromisoformat(start_str)
     except ValueError, TypeError:
-        start = today_utc
+        period_start = today
     try:
-        end = date.fromisoformat(end_str)
+        period_end = date.fromisoformat(end_str)
     except ValueError, TypeError:
-        end = today_utc
+        period_end = today
 
-    usage = _as_dict(current.get("usage"))
-    cost_label = _as_str(usage.get("amount"), "$0.00")
+    usage_block = _as_dict(bill_period.get("usage"))
+    projection_block = _as_dict(bill_period.get("projection"))
 
-    # projection is in the overview response but not in the usage summary;
-    # return empty string if absent — callers can populate from overview.
-    projection_label = _as_str(payload.get("additionalLabelValue"))
+    past_periods: list[GasPastPeriod] = []
+    for item_raw in _as_list(_as_dict(payload.get("pastUsage")).get("items")):
+        item = _as_dict(item_raw)
+        p_start_str = _as_str(_as_dict(item.get("start")).get("date"))
+        p_end_str = _as_str(_as_dict(item.get("end")).get("date"))
+        try:
+            p_start = date.fromisoformat(p_start_str)
+            p_end = date.fromisoformat(p_end_str)
+        except ValueError, TypeError:
+            # No valid dates -> can't place this period on the statistics
+            # timeline; drop it rather than guess.
+            continue
+        consumption = _as_dict(item.get("consumption"))
+        past_periods.append(
+            GasPastPeriod(
+                start=p_start,
+                end=p_end,
+                usage_mj=_safe_float(consumption.get("usageQuantity")),
+                cost_aud=_safe_float(consumption.get("usageAmount")),
+            )
+        )
 
-    # quantity is usually a label ("1,234.5 kWh"); a bare JSON number, empty
-    # or whitespace-only string must degrade to 0.0, never crash
-    # (whitespace previously hit .split()[0] -> IndexError; fuzz-enforced).
-    quantity_raw = usage.get("quantity")
-    if isinstance(quantity_raw, int | float) and not isinstance(quantity_raw, bool):
-        consumption_kwh = _safe_float(quantity_raw)
-    else:
-        parts = _as_str(quantity_raw, "0").replace(",", "").split()
-        consumption_kwh = _safe_float(parts[0] if parts else 0.0)
-
-    return BillPeriod(
-        start=start,
-        end=end,
-        consumption_kwh=consumption_kwh,
-        cost_label=cost_label,
-        projection_label=projection_label,
+    return GasUsageSummary(
+        period_start=period_start,
+        period_end=period_end,
+        current_day=_as_nonneg_int(bill_period.get("currentDay")),
+        max_days_in_period=_as_nonneg_int(bill_period.get("maximumDaysInPeriod")),
+        cost_so_far_aud=_label_to_float(usage_block.get("amount")),
+        usage_so_far_mj=_label_to_float(usage_block.get("quantity")),
+        projection_aud=_label_to_float(projection_block.get("amount")),
+        past_periods=past_periods,
     )
 
 
@@ -257,14 +217,19 @@ def parse_plan(data: dict[str, Any]) -> PlanRates:
     - The raw, allowlisted list of rate rows (``kind``/``type``/``title``/
       ``price``) — no per-row classification is applied.
 
-    What is deliberately NOT done here: classifying a flat usage-rate row
-    (the sibling electricity integration matches ``type == "c/kWh"``, which
-    assumes the usage unit is kWh). No real AGL gas plan response has been
-    captured yet (Phase 0, see docs/gas-api.md), so the confirmed `type`
-    string for a gas usage-rate row — c/MJ, c/m³, or something else — is
-    unknown. Guessing risks either silently matching nothing or silently
-    misreading a rate. Extraction of that row is left as a documented TODO
-    in coordinator.py rather than fabricated matching code.
+    What is deliberately NOT done here: picking a single "the" usage rate.
+    Confirmed real gas plans (Phase 0, 2026-07-30) use TIERED/block pricing
+    — multiple ``c/MJ`` detail rows ("First N MJ" / "Next N MJ" /
+    "Thereafter"), not one flat rate like the sibling electricity
+    integration's ``type == "c/kWh"`` row. Which tier is "current" depends
+    on cumulative usage so far this billing period against thresholds that
+    are only present as substrings of the free-text ``title`` (e.g. "First
+    1644 MJ") — parsing them out is a real option for a future
+    enhancement, not implemented here to avoid a fragile regex-in-title
+    dependency. `coordinator.py` picks the LAST detail ``c/MJ`` row
+    (typically "Thereafter") as a documented simplification; see its
+    comment for the rationale and the limitation for light users who never
+    reach that tier.
     """
     payload = _as_dict(data)
     product_name = _as_str(payload.get("productName"))

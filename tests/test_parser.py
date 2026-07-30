@@ -4,21 +4,18 @@ from __future__ import annotations
 
 import json
 import pathlib
-from datetime import UTC, date
+from datetime import date
 
 import pytest
 
 from custom_components.gaggle.agl.models import (
-    BillPeriod,
     Contract,
-    DailyReading,
-    IntervalReading,
+    GasPastPeriod,
+    GasUsageSummary,
     PlanRates,
 )
 from custom_components.gaggle.agl.parser import (
-    parse_bill_period,
-    parse_daily_readings,
-    parse_interval_readings,
+    parse_gas_usage_basic,
     parse_overview,
     parse_plan,
 )
@@ -109,151 +106,108 @@ class TestParsePlanAllowlist:
 
 
 # ---------------------------------------------------------------------------
-# parse_interval_readings
+# parse_gas_usage_basic — confirmed real shape (Phase 0, 2026-07-30)
 # ---------------------------------------------------------------------------
 
 
-class TestParseIntervalReadings:
-    def test_filters_none_type(self) -> None:
-        """Items with type='none' must be dropped."""
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        assert all(r.rate_type != "none" for r in readings)
+class TestParseGasUsageBasic:
+    def test_returns_gas_usage_summary_instance(self) -> None:
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        assert isinstance(summary, GasUsageSummary)
 
-    def test_uses_outer_consumption_quantity_not_inner_values(self) -> None:
-        """kWh must come from consumption.quantity (outer), NOT values.quantity (inner).
+    def test_current_period_dates(self) -> None:
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        assert summary.period_start == date(2026, 6, 12)
+        assert summary.period_end == date(2026, 8, 14)
 
-        Reconciled 2026-05-12 against an AGL portal "MyUsageData" CSV across
-        11 mitm /Hourly captures: outer ``consumption.quantity`` matches the
-        portal-grade meter value to 0.001 kWh, while ``consumption.values.quantity``
-        is a DPI/chart-scaled helper and undercounts by 4-73%.
+    def test_current_period_day_counters(self) -> None:
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        assert summary.current_day == 48
+        assert summary.max_days_in_period == 64
 
-        The fixture has values.quantity=0.112 but outer quantity=0.175 for the
-        first item — we must get 0.175.
-        """
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        kwhs = {r.kwh for r in readings}
-        # Outer consumption.quantity values from the fixture (the real meter reads).
-        assert 0.175 in kwhs
-        assert 0.186 in kwhs
-        # The inner values.quantity (chart helper) must NOT appear as kWh.
-        assert 0.112 not in kwhs
-        assert 0.119 not in kwhs
+    def test_current_period_estimate_parsed_from_labels(self) -> None:
+        """cost/usage-so-far only exist as formatted labels ('$159.20',
+        '3441.21 MJ') in the real response — no numeric sibling field."""
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        assert summary.cost_so_far_aud == pytest.approx(159.20)
+        assert summary.usage_so_far_mj == pytest.approx(3441.21)
 
-    def test_uses_outer_consumption_amount_for_cost(self) -> None:
-        """Cost AUD must come from consumption.amount (outer), not values.amount."""
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        costs = {r.cost_aud for r in readings}
-        # Outer consumption.amount values from the fixture.
-        assert 0.059 in costs
-        assert 0.063 in costs
-        # The peak slot has outer amount 0.489 and inner amount 0.925 —
-        # we must see 0.489 (the real cost).
-        assert 0.489 in costs
-        assert 0.925 not in costs
+    def test_projection_amount_parsed(self) -> None:
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        assert summary.projection_aud == pytest.approx(211.60)
 
-    def test_filters_zero_on_zero_placeholders(self) -> None:
-        """Slots with kwh=0 AND cost=0 are AGL placeholders (data not ready).
+    def test_past_periods_count_and_order_independence(self) -> None:
+        """Fixture has 5 past periods; parser doesn't need to sort them."""
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        assert len(summary.past_periods) == 5
+        assert all(isinstance(p, GasPastPeriod) for p in summary.past_periods)
 
-        AGL returns these for days where the AEMO meter reads have not yet
-        been delivered — even with a non-``none`` type. Inserting them as
-        zero-state rows would create phantom flat days in the statistics
-        table that the resume logic would skip past forever once AGL had the
-        real reads.
-        """
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        # Fixture has one type=normal slot at 14:30 UTC with all-zero values
-        # — it must be filtered out.
-        for r in readings:
-            assert not (r.kwh == 0.0 and r.cost_aud == 0.0)
+    def test_past_period_uses_numeric_fields_not_formatted_strings(self) -> None:
+        """usage_mj/cost_aud must come from usageQuantity/usageAmount (clean
+        floats), not the formatted quantity/amount display strings ("2,523
+        MJ" / "$98.25") which would need fragile comma/unit stripping."""
+        data = load_fixture("gas_usage_basic_response.json")
+        summary = parse_gas_usage_basic(data)
+        most_recent = max(summary.past_periods, key=lambda p: p.start)
+        assert most_recent.start == date(2026, 4, 16)
+        assert most_recent.end == date(2026, 6, 11)
+        assert most_recent.usage_mj == pytest.approx(2523.0)
+        assert most_recent.cost_aud == pytest.approx(98.252)
 
-    def test_dt_is_tz_aware_utc(self) -> None:
-        """Every parsed datetime must be UTC-aware."""
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        assert len(readings) > 0
-        for r in readings:
-            assert r.dt.tzinfo is not None
-            assert r.dt.tzinfo == UTC
+    def test_empty_response_degrades_to_today_and_no_periods(self) -> None:
+        from datetime import UTC, datetime as _dt
 
-    def test_expected_count_after_filters(self) -> None:
-        """Fixture has 8 items; 1 has type=none, 1 is zero-on-zero → 6 readings."""
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        assert len(readings) == 6
+        summary = parse_gas_usage_basic({})
+        today = _dt.now(UTC).date()
+        assert summary.period_start == today
+        assert summary.period_end == today
+        assert summary.current_day == 0
+        assert summary.max_days_in_period == 0
+        assert summary.cost_so_far_aud == 0.0
+        assert summary.usage_so_far_mj == 0.0
+        assert summary.projection_aud == 0.0
+        assert summary.past_periods == []
 
-    def test_returns_interval_reading_instances(self) -> None:
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        assert all(isinstance(r, IntervalReading) for r in readings)
-
-    def test_peak_type_preserved(self) -> None:
-        """The peak-type slot must not be dropped and rate_type must be 'peak'."""
-        data = load_fixture("hourly_response.json")
-        readings = parse_interval_readings(data)
-        peak_readings = [r for r in readings if r.rate_type == "peak"]
-        assert len(peak_readings) == 1
-        # Peak slot outer quantity is 1.448, outer amount is 0.489.
-        assert peak_readings[0].kwh == pytest.approx(1.448)
-        assert peak_readings[0].cost_aud == pytest.approx(0.489)
-
-    def test_empty_sections_returns_empty_list(self) -> None:
-        readings = parse_interval_readings({"sections": []})
-        assert readings == []
-
-    def test_invalid_datetime_is_skipped(self) -> None:
-        """Items with unparseable dateTime are silently skipped."""
+    def test_blank_projection_quantity_degrades_to_zero(self) -> None:
+        """Real AGL response has projection.quantity == "" (empty string) —
+        must not crash and must degrade to 0.0."""
         data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "not-a-date",
-                            "consumption": {
-                                "quantity": 0.5,
-                                "amount": 0.1,
-                                "type": "normal",
-                            },
-                        }
-                    ]
-                }
-            ]
+            "billPeriod": {
+                "start": {"date": "2026-06-12"},
+                "end": {"date": "2026-08-14"},
+                "usage": {"amount": "$1.00", "quantity": "1 MJ"},
+                "projection": {"amount": "$2.00", "quantity": ""},
+            }
         }
-        readings = parse_interval_readings(data)
-        assert readings == []
+        summary = parse_gas_usage_basic(data)
+        assert summary.projection_aud == pytest.approx(2.00)
 
-    def test_filters_pending_type(self) -> None:
-        """Intervals with type='pending' (AEMO data not yet available) must be dropped."""
+    def test_past_period_missing_dates_is_dropped(self) -> None:
         data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-07-01T00:00:00Z",
-                            "consumption": {
-                                "type": "pending",
-                                "quantity": 0.5,
-                                "amount": 0.1,
-                            },
-                        },
-                        {
-                            "dateTime": "2026-07-01T00:30:00Z",
-                            "consumption": {
-                                "type": "normal",
-                                "quantity": 0.3,
-                                "amount": 0.05,
-                            },
-                        },
-                    ]
-                }
-            ]
+            "pastUsage": {
+                "items": [
+                    {
+                        "start": {"date": "not-a-date"},
+                        "end": {"date": "2026-06-11"},
+                        "consumption": {"usageQuantity": 1.0, "usageAmount": 1.0},
+                    },
+                    {
+                        "start": {"date": "2026-04-16"},
+                        "end": {"date": "2026-06-11"},
+                        "consumption": {"usageQuantity": 2.0, "usageAmount": 2.0},
+                    },
+                ]
+            }
         }
-        readings = parse_interval_readings(data)
-        assert len(readings) == 1
-        assert readings[0].rate_type == "normal"
+        summary = parse_gas_usage_basic(data)
+        assert len(summary.past_periods) == 1
+        assert summary.past_periods[0].usage_mj == 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -313,48 +267,6 @@ class TestParseOverview:
 
 
 # ---------------------------------------------------------------------------
-# parse_bill_period
-# ---------------------------------------------------------------------------
-
-
-class TestParseBillPeriod:
-    def test_returns_bill_period_instance(self) -> None:
-        data = load_fixture("bill_period_response.json")
-        bp = parse_bill_period(data)
-        assert isinstance(bp, BillPeriod)
-
-    def test_correct_start_and_end_dates(self) -> None:
-        data = load_fixture("bill_period_response.json")
-        bp = parse_bill_period(data)
-        assert bp.start == date(2024, 1, 1)
-        assert bp.end == date(2024, 1, 31)
-
-    def test_cost_label(self) -> None:
-        data = load_fixture("bill_period_response.json")
-        bp = parse_bill_period(data)
-        assert bp.cost_label == "$45.00"
-
-    def test_projection_label_from_root(self) -> None:
-        """projection_label comes from root additionalLabelValue."""
-        data = load_fixture("bill_period_response.json")
-        bp = parse_bill_period(data)
-        assert bp.projection_label == "$90.00"
-
-    def test_consumption_kwh_parsed_from_quantity_string(self) -> None:
-        data = load_fixture("bill_period_response.json")
-        bp = parse_bill_period(data)
-        assert bp.consumption_kwh == pytest.approx(200.0)
-
-    def test_missing_bill_period_returns_today_dates(self) -> None:
-        """Empty response should not crash; dates fall back to today."""
-        from datetime import UTC, datetime as _dt
-
-        bp = parse_bill_period({})
-        assert bp.start == _dt.now(UTC).date()
-        assert bp.end == _dt.now(UTC).date()
-
-
-# ---------------------------------------------------------------------------
 # parse_plan
 # ---------------------------------------------------------------------------
 
@@ -396,137 +308,37 @@ class TestParsePlan:
         assert plan.supply_charge_cents_per_day == 0.0
 
 
-# ---------------------------------------------------------------------------
-# parse_daily_readings
-# ---------------------------------------------------------------------------
+class TestParsePlanGasTiered:
+    """Real confirmed gas plan (Phase 0, 2026-07-30): tiered/block c/MJ
+    pricing, not one flat rate like the sibling electricity integration."""
 
+    def test_supply_charge(self) -> None:
+        data = load_fixture("gas_plan_response.json")
+        plan = parse_plan(data)
+        assert plan.supply_charge_cents_per_day == pytest.approx(79.9755)
 
-class TestParseDailyReadings:
-    def test_parse_daily_filters_none(self) -> None:
-        data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-04-28T00:00:00Z",
-                            "consumption": {
-                                "quantity": 5.2,
-                                "amount": 1.75,
-                                "type": "normal",
-                            },
-                        },
-                        {
-                            "dateTime": "2026-04-29T00:00:00Z",
-                            "consumption": {
-                                "quantity": 0.0,
-                                "amount": 0.0,
-                                "type": "none",
-                            },
-                        },
-                    ]
-                }
-            ]
-        }
-        readings = parse_daily_readings(data)
-        assert len(readings) == 1
-        assert isinstance(readings[0], DailyReading)
+    def test_all_three_tiers_present(self) -> None:
+        data = load_fixture("gas_plan_response.json")
+        plan = parse_plan(data)
+        mj_rates = [r for r in plan.unit_rates if r.get("type") == "c/MJ"]
+        assert len(mj_rates) == 3
+        assert [r["title"] for r in mj_rates] == [
+            "First 1644 MJ",
+            "Next 1314 MJ",
+            "Thereafter",
+        ]
 
-    def test_daily_reading_date_field(self) -> None:
-        data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-04-28T00:00:00Z",
-                            "consumption": {
-                                "quantity": 5.2,
-                                "amount": 1.75,
-                                "type": "normal",
-                            },
-                        }
-                    ]
-                }
-            ]
-        }
-        readings = parse_daily_readings(data)
-        assert readings[0].day == date(2026, 4, 28)
-
-    def test_daily_uses_outer_consumption_quantity(self) -> None:
-        """Daily kWh must come from outer consumption.quantity (matches AEMO CSV).
-
-        Inner ``values.quantity`` is a DPI/chart helper and must not be read.
-        """
-        data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-04-28T00:00:00Z",
-                            "consumption": {
-                                "values": {"amount": 5.2, "quantity": 5.2},
-                                "amount": 9.78,
-                                "quantity": 29.044,
-                                "type": "normal",
-                            },
-                        }
-                    ]
-                }
-            ]
-        }
-        readings = parse_daily_readings(data)
-        assert readings[0].kwh == pytest.approx(29.044)
-        assert readings[0].cost_aud == pytest.approx(9.78)
-
-    def test_daily_filters_zero_on_zero_placeholder(self) -> None:
-        """Daily slots with kwh=0 AND cost=0 are AGL placeholders → filtered."""
-        data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-04-28T00:00:00Z",
-                            "consumption": {
-                                "quantity": 0.0,
-                                "amount": 0.0,
-                                "type": "normal",
-                            },
-                        }
-                    ]
-                }
-            ]
-        }
-        readings = parse_daily_readings(data)
-        assert readings == []
-
-    def test_daily_filters_pending_type(self) -> None:
-        """Daily slots with type='pending' must be dropped."""
-        data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-07-01T00:00:00Z",
-                            "consumption": {
-                                "type": "pending",
-                                "quantity": 5.2,
-                                "amount": 1.75,
-                            },
-                        },
-                        {
-                            "dateTime": "2026-07-02T00:00:00Z",
-                            "consumption": {
-                                "type": "normal",
-                                "quantity": 4.8,
-                                "amount": 1.60,
-                            },
-                        },
-                    ]
-                }
-            ]
-        }
-        readings = parse_daily_readings(data)
-        assert len(readings) == 1
-        assert readings[0].day == date(2026, 7, 2)
+    def test_tier_prices_distinct(self) -> None:
+        """Unlike a flat-rate plan, the three tiers must NOT collapse to one
+        price — that would silently hide the tiered structure."""
+        data = load_fixture("gas_plan_response.json")
+        plan = parse_plan(data)
+        prices = sorted(r["price"] for r in plan.unit_rates if r.get("type") == "c/MJ")
+        assert prices == [
+            pytest.approx(2.563),
+            pytest.approx(3.7477),
+            pytest.approx(3.9875),
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -543,63 +355,52 @@ class TestParserTotality:
     pre-hardened parser and pins the fix deterministically.
     """
 
-    def test_bill_period_whitespace_quantity(self) -> None:
-        # Was IndexError: "   ".split()[0] on an empty split result.
-        data = {"billPeriod": {"current": {"usage": {"quantity": "   "}}}}
-        assert parse_bill_period(data).consumption_kwh == 0.0
+    def test_gas_usage_whitespace_quantity(self) -> None:
+        # Same whitespace-only-label crash class the sibling electricity
+        # integration hit: "   ".split()[0] on an empty split result.
+        data = {"billPeriod": {"usage": {"quantity": "   "}}}
+        assert parse_gas_usage_basic(data).usage_so_far_mj == 0.0
 
-    def test_bill_period_numeric_quantity(self) -> None:
-        # Was AttributeError: float has no .replace.
-        data = {"billPeriod": {"current": {"usage": {"quantity": 42.5}}}}
-        assert parse_bill_period(data).consumption_kwh == 42.5
+    def test_gas_usage_numeric_quantity(self) -> None:
+        # A bare JSON number where a formatted label is expected must not
+        # crash on .replace()/.split().
+        data = {"billPeriod": {"usage": {"quantity": 42.5}}}
+        assert parse_gas_usage_basic(data).usage_so_far_mj == 0.0
+        # (a bare number isn't the real shape — degrades to 0.0, not 42.5,
+        # since _label_to_float expects a string; documents the behaviour
+        # rather than asserting a crash)
 
-    def test_bill_period_non_dict_nodes(self) -> None:
-        # Was AttributeError: .get on list/str/int at every envelope level.
-        for weird in (["x"], "str", 3, {"current": 7}, {"current": {"usage": []}}):
-            bill = parse_bill_period({"billPeriod": weird})
-            assert bill.consumption_kwh == 0.0
-            assert bill.cost_label == "$0.00"
+    def test_gas_usage_non_dict_nodes(self) -> None:
+        for weird in (["x"], "str", 3, {"usage": 7}, {"usage": []}):
+            summary = parse_gas_usage_basic({"billPeriod": weird})
+            assert summary.usage_so_far_mj == 0.0
+            assert summary.cost_so_far_aud == 0.0
 
-    def test_intervals_non_dict_sections_items_and_blocks(self) -> None:
-        assert parse_interval_readings({"sections": 5}) == []
-        assert parse_interval_readings({"sections": ["x", {"items": "y"}]}) == []
-        data = {"sections": [{"items": ["x", {"consumption": "oops"}]}]}
-        assert parse_interval_readings(data) == []
+    def test_gas_usage_non_dict_past_periods(self) -> None:
+        assert parse_gas_usage_basic({"pastUsage": {"items": 5}}).past_periods == []
+        assert (
+            parse_gas_usage_basic({"pastUsage": {"items": ["x", 3]}}).past_periods == []
+        )
 
-    def test_intervals_unhashable_type_skipped(self) -> None:
-        # Was TypeError: unhashable dict in `rate_type in _skip_types`.
+    def test_gas_usage_non_numeric_consumption_fields(self) -> None:
         data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-07-01T00:00:00Z",
-                            "consumption": {"type": {}, "quantity": 1, "amount": 1},
-                        }
-                    ]
-                }
-            ]
+            "pastUsage": {
+                "items": [
+                    {
+                        "start": {"date": "2026-04-16"},
+                        "end": {"date": "2026-06-11"},
+                        "consumption": {
+                            "usageQuantity": "not a number",
+                            "usageAmount": None,
+                        },
+                    }
+                ]
+            }
         }
-        assert parse_interval_readings(data) == []
-
-    def test_daily_unhashable_type_keeps_original_keep_path(self) -> None:
-        # Daily has no default type; absent/odd types were (and stay) kept —
-        # only the unhashable-crash is fixed, not the keep semantics.
-        data = {
-            "sections": [
-                {
-                    "items": [
-                        {
-                            "dateTime": "2026-07-01T00:00:00Z",
-                            "consumption": {"type": [], "quantity": 2, "amount": 3},
-                        }
-                    ]
-                }
-            ]
-        }
-        readings = parse_daily_readings(data)
-        assert len(readings) == 1
-        assert readings[0].kwh == 2.0
+        summary = parse_gas_usage_basic(data)
+        assert len(summary.past_periods) == 1
+        assert summary.past_periods[0].usage_mj == 0.0
+        assert summary.past_periods[0].cost_aud == 0.0
 
     def test_overview_malformed_contract_skipped_and_int_id_coerced(self) -> None:
         # Was KeyError on {} (missing contractNumber); junk entries crash-free.

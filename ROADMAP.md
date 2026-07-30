@@ -11,26 +11,32 @@ _Last reviewed: 2026-07. Reviewed at least annually and at each minor release._
 
 ## Direction (next ~12 months)
 
-**Phase 0 — capture the real AGL gas API contract.** Nobody has captured
-AGL's gas usage endpoint yet. Until a real device capture documents the URL,
-required headers, response envelope, units (MJ vs m³), and data granularity,
-the usage-fetch path is an explicit `NotImplementedError` stub — see
-`docs/gas-api.md`. This blocks everything below and is the current priority.
+**Ship a v0.1.0 beta.** Phase 0 (capturing the real AGL gas API contract)
+is done — see `docs/gas-api.md`. Real gas usage data flows for a basic
+meter: current-period estimate/projection sensors plus a sparse
+per-billing-period `gaggle:consumption_<contract>` / `cost_<contract>`
+statistic, confirmed against the maintainer's own account. What's left
+before a beta: broader validation across more real accounts (see
+"Validate across meter types" below), and the standard release-acceptance
+bar in `docs/releasing.md`.
 
-**Ship a working v0.1.0 beta** once Phase 0 lands: real gas interval/daily
-data flowing into `gaggle:consumption_<contract>` and
-`gaggle:cost_<contract>`, validated against the AGL app and a real gas bill
-for at least one account.
+**Validate across meter types.** The Phase 0 capture is from one basic
+(manually/self-read) meter account. Most Australian gas meters are basic;
+some networks run remotely-read digital meters that may expose different
+(possibly interval) data — unconfirmed. Recruit a tester with a
+digitally-read gas meter to find out whether that changes the product
+story, and validate the tiered-plan rate parsing against more real plans.
 
-**Validate across meter types.** Most Australian gas meters are basic
-(manually read every 2-3 months); some networks run remotely-read digital
-meters with daily data. Confirm what AGL's API actually serves for each, and
-whether the product story needs to change for basic-meter accounts (see
-Non-goals below).
+**Consider computing the actual marginal tiered rate.** Today the unit-rate
+sensor reads the highest ("Thereafter") tier as a documented
+simplification. Parsing the usage thresholds out of plan titles (e.g.
+"First 1644 MJ") and computing the real effective rate from usage-to-date
+would be more accurate for light users — tracked as a real enhancement,
+not required for a first release.
 
 **Keep the engineering baseline healthy.** Carry forward `haggle`'s
 secure-SDLC posture (CI gates, dependency review, gitleaks, coverage
-ratchet) as the codebase grows past the Phase 0 stub.
+ratchet) as the codebase and its user base grow.
 
 ## Non-goals (what `gaggle` will *not* do)
 
@@ -50,11 +56,12 @@ These are deliberate scope boundaries, not backlog items:
   handle credentials directly.
 - **No destructive uninstall.** Removing the integration will not delete the
   user's accumulated `gaggle:*` energy history.
-- **No fabricated data.** If AGL's API only serves billing-period totals for
-  a given meter type (rather than daily/interval reads), `gaggle` will show
-  that honestly — period sensors, no Energy-dashboard history import — rather
-  than interpolate or estimate a daily chart. See the Phase 0 decision gate
-  in the project handover plan.
+- **No fabricated data.** A basic gas meter only gives AGL billing-period
+  totals, not daily/interval reads — `gaggle` shows that honestly: sensors
+  for the current period's real AGL estimate, and a sparse
+  once-per-billing-period Energy-dashboard statistic built only from real,
+  already-billed totals. It will never interpolate or estimate a daily
+  chart to look smoother than the underlying data actually is.
 
 ## How priorities are set
 

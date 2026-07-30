@@ -1,0 +1,153 @@
+{
+  "resourceType": "gas",
+  "tooltips": {
+    "info": {
+      "title": "Figures inclusive of GST.",
+      "subtitle": "See how these amounts are calculated.",
+      "url": "https://www.agl.com.au/help-support/energy/billing-and-payments/bill-questions-answered/energy-usage-calculations"
+    }
+  },
+  "billPeriod": {
+    "start": {
+      "day": "12",
+      "month": "June",
+      "date": "2026-06-12"
+    },
+    "end": {
+      "day": "14",
+      "month": "Aug",
+      "date": "2026-08-14"
+    },
+    "maximumDaysInPeriod": 64,
+    "currentDay": 48,
+    "projection": {
+      "title": "Bill Projection",
+      "subtitle": "Estimated",
+      "amount": "$211.60",
+      "quantity": ""
+    },
+    "usage": {
+      "title": "Cost So Far",
+      "subtitle": "Estimated",
+      "amount": "$159.20",
+      "quantity": "3441.21 MJ"
+    },
+    "historicalReads": "https://api.platform.agl.com.au/mobile/bff/api/v2/usage/basic/history/Gas/9999999999?period=2026-06-12_2026-08-14"
+  },
+  "ssmr": {
+    "title": "Enter meter read",
+    "meterRead": {
+      "native": "https://api.platform.agl.com.au/mobile/bff/api/v2/meter/9999999999"
+    }
+  },
+  "pastUsage": {
+    "items": [
+      {
+        "start": {
+          "day": "16",
+          "month": "Apr",
+          "date": "2026-04-16"
+        },
+        "end": {
+          "day": "11",
+          "month": "June",
+          "date": "2026-06-11"
+        },
+        "consumption": {
+          "amount": "$98.25",
+          "usageAmount": 98.252,
+          "quantity": "2,523 MJ",
+          "usageQuantity": 2523.0,
+          "unitOfMeasurement": "MJ",
+          "value": 1.0
+        },
+        "historicalReads": "https://api.platform.agl.com.au/mobile/bff/api/v2/usage/basic/history/Gas/9999999999?period=2026-04-16_2026-06-11"
+      },
+      {
+        "start": {
+          "day": "11",
+          "month": "Feb",
+          "date": "2026-02-11"
+        },
+        "end": {
+          "day": "15",
+          "month": "Apr",
+          "date": "2026-04-15"
+        },
+        "consumption": {
+          "amount": "$76.52",
+          "usageAmount": 76.516,
+          "quantity": "1,909 MJ",
+          "usageQuantity": 1909.0,
+          "unitOfMeasurement": "MJ",
+          "value": 0.7788
+        },
+        "historicalReads": "https://api.platform.agl.com.au/mobile/bff/api/v2/usage/basic/history/Gas/9999999999?period=2026-02-11_2026-04-15"
+      },
+      {
+        "start": {
+          "day": "06",
+          "month": "Dec",
+          "date": "2025-12-06"
+        },
+        "end": {
+          "day": "10",
+          "month": "Feb",
+          "date": "2026-02-10"
+        },
+        "consumption": {
+          "amount": "$38.79",
+          "usageAmount": 38.786,
+          "quantity": "922 MJ",
+          "usageQuantity": 922.0,
+          "unitOfMeasurement": "MJ",
+          "value": 0.3948
+        },
+        "historicalReads": "https://api.platform.agl.com.au/mobile/bff/api/v2/usage/basic/history/Gas/9999999999?period=2025-12-06_2026-02-10"
+      },
+      {
+        "start": {
+          "day": "10",
+          "month": "Oct",
+          "date": "2025-10-10"
+        },
+        "end": {
+          "day": "05",
+          "month": "Dec",
+          "date": "2025-12-05"
+        },
+        "consumption": {
+          "amount": "$72.36",
+          "usageAmount": 72.358,
+          "quantity": "1,729 MJ",
+          "usageQuantity": 1729.0,
+          "unitOfMeasurement": "MJ",
+          "value": 0.7365
+        },
+        "historicalReads": "https://api.platform.agl.com.au/mobile/bff/api/v2/usage/basic/history/Gas/9999999999?period=2025-10-10_2025-12-05"
+      },
+      {
+        "start": {
+          "day": "18",
+          "month": "Aug",
+          "date": "2025-08-18"
+        },
+        "end": {
+          "day": "09",
+          "month": "Oct",
+          "date": "2025-10-09"
+        },
+        "consumption": {
+          "amount": "$87.24",
+          "usageAmount": 87.241,
+          "quantity": "2,113 MJ",
+          "usageQuantity": 2113.0,
+          "unitOfMeasurement": "MJ",
+          "value": 0.8879
+        },
+        "historicalReads": "https://api.platform.agl.com.au/mobile/bff/api/v2/usage/basic/history/Gas/9999999999?period=2025-08-18_2025-10-09"
+      }
+    ]
+  },
+  "viewPlan": "https://api.platform.agl.com.au/mobile/bff/api/v2/plan/energy/9999999999"
+}

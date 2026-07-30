@@ -52,6 +52,7 @@ def _data() -> GaggleData:
     return GaggleData(
         consumption_period_usage=95.0,
         consumption_period_cost_aud=35.11,
+        projection_cost_aud=70.00,
         unit_rate_aud_per_unit=0.3,
         supply_charge_aud_per_day=1.4,
         latest_cumulative_usage=1234.5678901,

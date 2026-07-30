@@ -14,26 +14,29 @@ dashboard.
 >
 > **Australia only.** Requires an AGL Energy gas account.
 
-> **Status: pre-alpha, not yet functional.** `gaggle` is a sibling project to
+> **Status: pre-release, functional against a basic (non-smart) gas
+> meter.** `gaggle` is a sibling project to
 > [`haggle`](https://github.com/NaanyaBiz/haggle) (which does the same thing
-> for AGL electricity). The auth flow, contract discovery, and statistics
-> plumbing are ported and working; the actual gas usage fetch is a deliberate
-> stub (`NotImplementedError`) because AGL's gas usage API has not yet been
-> captured from a real device. See [`docs/gas-api.md`](./docs/gas-api.md) and
-> the project handover plan for what's blocking this. Do not install expecting
-> gas data in your Energy dashboard yet.
+> for AGL electricity). Auth, contract discovery, real gas usage data, and
+> statistics import all work, confirmed against a real AGL account. The
+> confirmed shape turned out to differ from electricity in an important
+> way: **a basic gas meter has no interval/daily data at all** — AGL only
+> exposes a current-period estimate plus a window of already-billed past
+> periods. So the Energy dashboard gets one bar per completed billing
+> period (roughly every two months), not a smooth daily chart. See
+> [`docs/gas-api.md`](./docs/gas-api.md) for the full findings. No release
+> has shipped yet — see [`docs/releasing.md`](./docs/releasing.md).
 
 ## Why
 
-AGL is one of Australia's largest gas retailers. `gaggle` aims to use the
-same authenticated API their mobile app uses to fetch your gas usage and feed
+AGL is one of Australia's largest gas retailers. `gaggle` uses the same
+authenticated API their mobile app uses to fetch your gas usage and feed
 it into Home Assistant's long-term statistics, the way
 [`haggle`](https://github.com/NaanyaBiz/haggle) already does for electricity.
 
 ## Install
 
-Not yet published to HACS. Once Phase 0 (API capture) lands and a first
-release ships, install as a HACS custom repository:
+Not yet published to HACS. Install as a HACS custom repository:
 
 1. HACS → ⋮ → Custom repositories → add this repo URL as an Integration.
 2. *Settings* → *Devices & Services* → *Add integration* → search **AGL Gaggle**.
@@ -43,8 +46,10 @@ release ships, install as a HACS custom repository:
    your browser's address bar and paste it into the HA dialog.
 5. If you have multiple gas contracts, select the one to monitor.
 
-The auth and contract-selection steps work today. Usage data will not
-populate until the gas usage endpoint is implemented (see Status above).
+The integration polls once per day. Your current billing period's usage
+and cost sensors update on that cadence with AGL's own estimate; the
+Energy dashboard statistic gains a new bar each time a billing period
+completes (bimonthly for most plans).
 
 ## Removing
 
@@ -56,10 +61,11 @@ Developer Tools → Statistics if you want them gone.
 
 ## Energy dashboard
 
-Once usage data flows: add the `gaggle:consumption_<contract>` statistic as
-your dashboard's *Gas consumption* source — never the `sensor.…` entities,
-which update once per day and would render a whole day as one bar on the
-wrong date.
+Add the `gaggle:consumption_<contract>` statistic as your dashboard's *Gas
+consumption* source — never the `sensor.…` entities. Expect a sparse chart:
+one bar per completed billing period, not daily bars — there's no
+underlying interval data for a basic gas meter to build a smoother chart
+from.
 
 Full setup guide and troubleshooting:
 **[docs/energy-dashboard.md](./docs/energy-dashboard.md)**.
@@ -67,8 +73,8 @@ Full setup guide and troubleshooting:
 ## Develop
 
 See [`AGENTS.md`](./AGENTS.md) for the full dev workflow and AGL API contract
-documentation. See `docs/gas-api.md` for what's needed to unblock the gas
-usage fetch.
+documentation. See [`docs/gas-api.md`](./docs/gas-api.md) for the confirmed
+API findings and what's still open (support for smart-metered gas accounts).
 
 ## Provenance
 

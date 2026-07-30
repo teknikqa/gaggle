@@ -1,23 +1,23 @@
 # Threat Model — gaggle
 
 **Status**: living document, intentionally lightweight while the project is
-pre-alpha (gas usage fetch is a stub — see `docs/gas-api.md`). Re-review
-once real gas data starts flowing, and again before any HACS submission.
-`haggle`'s `docs/threat-model.md` shows the level of detail this should grow
-into (STRIDE register, AI-agent grant analysis, resilience targets) as the
+pre-release. Re-review before any HACS submission and whenever a new
+endpoint (e.g. a smart-metered gas account) is added. `haggle`'s
+`docs/threat-model.md` shows the level of detail this should grow into
+(STRIDE register, AI-agent grant analysis, resilience targets) as the
 project matures — port from there rather than re-deriving from scratch.
 
 ## 1. System description
 
-Gaggle is a Home Assistant (HA) custom integration that will pull
-smart-meter gas data from AGL Energy's (Australia) undocumented mobile-app
-API and feed it into the HA Energy dashboard via recorder long-term
-statistics. Distributed via HACS; runs entirely inside the user's own HA
-process; ships zero third-party runtime packages (`manifest.json`
+Gaggle is a Home Assistant (HA) custom integration that pulls smart-meter
+gas data from AGL Energy's (Australia) undocumented mobile-app API and
+feeds it into the HA Energy dashboard via recorder long-term statistics.
+Distributed via HACS; runs entirely inside the user's own HA process;
+ships zero third-party runtime packages (`manifest.json`
 `"requirements": []`).
 
-Core data flow (auth and contract discovery work today; the usage fetch is
-a stub):
+Core data flow (confirmed against a real basic-meter gas account, Phase 0,
+2026-07-30 — see `docs/gas-api.md`):
 
     HA user browser  →[PKCE callback URL paste]→  config_flow.py
     config_flow.py   →[POST /oauth/token, PKCE]→  AGL Auth0 (secure.agl.com.au)
@@ -25,9 +25,8 @@ a stub):
     config_flow.py   →[persists refresh_token]→   HA config entry (.storage, plaintext JSON)
     AglAuth          →[refresh grant, JIT]→        AGL Auth0
     AglAuth          →[Bearer JWT, 15-min]→        AGL BFF (api.platform.agl.com.au)
-    AGL BFF          →[overview + plan JSON]→      GaggleCoordinator (parser: total over arbitrary JSON)
-    AGL BFF          →[gas usage — NOT YET IMPLEMENTED]→  GaggleCoordinator
-    Coordinator      →[StatisticData rows]→        HA recorder (idempotent on (statistic_id, start))
+    AGL BFF          →[overview + plan + gas usage JSON]→  GaggleCoordinator (parser: total over arbitrary JSON)
+    Coordinator      →[StatisticData rows, one per completed billing period]→  HA recorder (idempotent on (statistic_id, start))
 
 Attacker-relevant properties (carried over from `haggle`, apply identically
 here since it's the same AGL mobile API surface):
@@ -75,9 +74,10 @@ here since it's the same AGL mobile API surface):
   the user's browser and HA host simultaneously to matter.
 - **Single-maintainer governance**: no independent code review, no second
   responder. Same shape as `haggle`'s accepted risk; not re-litigated here
-  in detail while the project is pre-alpha — revisit before any HACS
+  in detail while the project is pre-release — revisit before any HACS
   submission.
-- **Gas API contract unverified**: the entire usage-fetch path is unbuilt
-  pending a real device capture (Phase 0). Until then there's no attack
-  surface there to model beyond "don't guess at the endpoint" — see
-  `docs/gas-api.md`.
+- **Only one meter type validated**: the gas usage path is confirmed
+  against one real basic-meter account (Phase 0). A smart-metered gas
+  account may expose a different, unconfirmed endpoint — no attack surface
+  to model there yet beyond "don't guess at it" (see `docs/gas-api.md`),
+  and this threat model should be re-reviewed once one is captured.

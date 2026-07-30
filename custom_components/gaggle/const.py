@@ -25,33 +25,26 @@ AGL_REDIRECT_URI: Final = "https://secure.agl.com.au/ios/au.com.agl.mobile/callb
 AGL_OAUTH_SCOPE: Final = "openid profile email offline_access"
 AGL_OAUTH_AUDIENCE: Final = "https://api.platform.agl.com.au/"
 
-# Polling cadence.
-# AGL interval data is delayed 24-48 h from the meter (AEMO feed lag).
-SCAN_INTERVAL_HOURLY: Final = timedelta(hours=24)  # 30-min intervals: fetch yesterday
-# Retry cadence after a FAILED poll (#155). A transient AGL error at poll time
-# previously cost a full 24 h of data — indistinguishable from "the poll never
-# ran" (#126). Restored to SCAN_INTERVAL_HOURLY on the next success; polling
-# faster than 24 h on success buys nothing (AGL data lags 24-48 h).
+# Polling cadence. A basic gas meter's usage endpoint returns the current
+# period's ESTIMATE (which AGL updates roughly daily) plus a window of
+# already-billed past periods in ONE call — there is no per-day backfill
+# loop here (unlike haggle's electricity coordinator, which fetches
+# interval data day-by-day). 24h keeps the current-period estimate fresh
+# without hammering AGL for data that barely changes.
+SCAN_INTERVAL: Final = timedelta(hours=24)
+# Retry cadence after a FAILED poll — a transient AGL error at poll time
+# shouldn't cost a full day and look like "the poll never ran" (same
+# self-healing pattern as the sibling electricity integration). Restored
+# to SCAN_INTERVAL on the next success.
 RETRY_INTERVAL_ON_ERROR: Final = timedelta(minutes=30)
 
-# Number of days of history to backfill on first install.
-BACKFILL_DAYS: Final = 30
-# Maximum days to fetch per 24 h poll cycle (throttles first-install backfill).
-BACKFILL_CHUNK_DAYS: Final = 7
-# Seconds to sleep between per-day fetches in a backfill chunk so we don't
-# fire 7 requests in under a second.
-BACKFILL_INTER_REQUEST_DELAY: Final = 0.5
-# Trailing days to re-fetch every poll once initial backfill is complete.
-# Self-heals AGL's day-late AEMO backfills: a slot first returned as a
-# placeholder gets overwritten once AGL has the real read.
-# async_add_external_statistics is idempotent on (statistic_id, start), so
-# this is a safe overwrite.
-REWINDOW_DAYS: Final = 7
-
 # AGL BFF requires these headers on Hourly/Daily usage endpoints (HTTP 500 without them).
-# Documented from AGL mobile app 8.38.0-531 — 2026-05-01. Confirmed against the
-# Electricity endpoints; unconfirmed but assumed required for Gas too (Phase 0,
-# see docs/gas-api.md) since both are served by the same BFF.
+# Documented from AGL mobile app 8.38.0-531 — 2026-05-01. Confirmed required
+# on the electricity Hourly/Daily endpoints; also sent on the confirmed real
+# gas usage.basic.Gas call (Phase 0, 2026-07-30) alongside the rest of the
+# default headers, though that endpoint hasn't been tested WITHOUT them to
+# confirm they're strictly required there too — kept for consistency with
+# the rest of the BFF.
 AGL_ACCEPT_FEATURES: Final = (
     "AccountEnableCarbonNeutral, AccountEnableCarbonNeutralMessagingRemoval,"
     " AccountEnableConcessionMessaging, AccountEnableConsumerDataRight,"
@@ -106,15 +99,17 @@ GAS_FUEL_TYPE: Final = "gasContract"
 STAT_CONSUMPTION: Final = "consumption"  # → gaggle:consumption_{contract}
 STAT_COST: Final = "cost"  # → gaggle:cost_{contract}
 
-# Gas usage unit — TBD pending Phase 0 capture (see docs/gas-api.md). AGL most
-# likely bills gas usage in MJ (megajoules) rather than m³, based on standard
-# AGL residential gas billing practice, but this is UNCONFIRMED — no real gas
-# usage response has been captured yet. Kept as a single named constant
-# (rather than scattered literal strings) so swapping it once Phase 0 lands
-# is a one-line change. unit_class="energy" is required regardless of the
-# final unit string for the statistic to appear in the Energy dashboard's
-# consumption picker (see AGENTS.md "Energy Dashboard Contract").
+# Gas usage unit — CONFIRMED MJ (Phase 0 capture, 2026-07-30):
+# unitOfMeasurement/quantity fields throughout usage.basic.Gas all read
+# "MJ". unit_class="energy" is required regardless of the unit string for
+# the statistic to appear in the Energy dashboard's consumption picker
+# (see AGENTS.md "Energy Dashboard Contract").
 GAS_USAGE_UNIT: Final = "MJ"
+# Plan rate-row type string for a per-unit gas usage rate. Confirmed real
+# gas plans use tiered/block c/MJ rows ("First N MJ" / "Next N MJ" /
+# "Thereafter") rather than one flat rate — see agl/parser.py::parse_plan
+# and coordinator.py for how a single rate is picked from the tiers.
+GAS_RATE_TYPE: Final = "c/MJ"
 
 # Config-entry keys.
 # CONF_EMAIL / CONF_PASSWORD are NOT used — auth is via refresh token.
@@ -127,12 +122,18 @@ CONF_PINNED_SPKI_AUTH: Final = "pinned_spki_auth"  # secure.agl.com.au
 CONF_PINNED_SPKI_BFF: Final = "pinned_spki_bff"  # api.platform.agl.com.au
 
 # Coordinator data attribute names — must match GaggleData field names exactly.
-# Named generically ("usage"/"unit", not "kwh") since the confirmed unit for
-# gas is still TBD (see GAS_USAGE_UNIT above) — field names that said "kwh"
-# while the actual value might be MJ would be misleading in their own right.
+# Named generically ("usage"/"unit", not "mj") so a future unit change
+# doesn't leave a misleadingly-named field behind.
 DATA_CONSUMPTION_KWH: Final = "latest_cumulative_usage"  # cumulative total usage
 DATA_CONSUMPTION_COST: Final = "latest_cumulative_cost_aud"  # cumulative total cost
-DATA_CONSUMPTION_PERIOD: Final = "consumption_period_usage"  # usage this bill period
-DATA_CONSUMPTION_PERIOD_COST: Final = "consumption_period_cost_aud"  # cost this period
+DATA_CONSUMPTION_PERIOD: Final = (
+    "consumption_period_usage"  # usage this bill period (estimate)
+)
+DATA_CONSUMPTION_PERIOD_COST: Final = (
+    "consumption_period_cost_aud"  # cost this period (estimate)
+)
+DATA_PROJECTION_COST: Final = (
+    "projection_cost_aud"  # AGL's own bill projection for this period
+)
 DATA_UNIT_RATE: Final = "unit_rate_aud_per_unit"  # AUD per unit of usage
 DATA_SUPPLY_CHARGE: Final = "supply_charge_aud_per_day"  # AUD/day

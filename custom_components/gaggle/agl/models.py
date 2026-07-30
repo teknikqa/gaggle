@@ -32,39 +32,41 @@ class Contract:
 
 
 @dataclass(slots=True)
-class IntervalReading:
-    """One 30-minute interval reading from /Hourly.
+class GasPastPeriod:
+    """One already-billed period from usage.basic.Gas's pastUsage.items[].
 
-    Not currently wired to any AglClient method — the gas usage-fetch
-    endpoints are stubs pending Phase 0 capture (see docs/gas-api.md). Kept
-    as the generic, fuzz-tested JSON→dataclass shape in case the real gas
-    endpoint reuses this envelope; do not assume it does without a capture.
+    Real, actual meter-read-derived totals (not an estimate) — confirmed
+    against the maintainer's own AGL account, 2026-07-30 (Phase 0, see
+    docs/gas-api.md). Used to seed the gaggle:* statistics import — one
+    point per completed billing period, sparse (~bimonthly), NOT a daily
+    or hourly series (no such data exists for a basic gas meter).
     """
-
-    dt: datetime  # slot start, UTC
-    kwh: float  # consumption.quantity (outer) — source of truth, matches AEMO/CSV
-    cost_aud: float  # consumption.amount (outer)
-    rate_type: str  # e.g. "normal"; "none"/"pending" are filtered by the parser
-
-
-@dataclass(slots=True)
-class DailyReading:
-    """One day aggregate from /Daily."""
-
-    day: date
-    kwh: float
-    cost_aud: float
-
-
-@dataclass(slots=True)
-class BillPeriod:
-    """Current bill period boundaries + totals from /usage summary."""
 
     start: date
     end: date
-    consumption_kwh: float
-    cost_label: str  # e.g. "$87.38"
-    projection_label: str  # e.g. "$139.15"
+    usage_mj: float  # consumption.usageQuantity
+    cost_aud: float  # consumption.usageAmount
+
+
+@dataclass(slots=True)
+class GasUsageSummary:
+    """Full response from GET /v2/usage/basic/Gas/{contractNumber}.
+
+    Confirmed real shape (Phase 0, 2026-07-30) — NOT the interval/hourly
+    shape the sibling electricity integration uses. A basic gas meter has
+    no interval data at all: the current period is an estimate + a
+    projection (both figures, not readings), and ``past_periods`` is the
+    only source of real historical totals.
+    """
+
+    period_start: date
+    period_end: date
+    current_day: int  # billPeriod.currentDay
+    max_days_in_period: int  # billPeriod.maximumDaysInPeriod
+    cost_so_far_aud: float  # billPeriod.usage.amount ("$" stripped)
+    usage_so_far_mj: float  # billPeriod.usage.quantity (" MJ" stripped)
+    projection_aud: float  # billPeriod.projection.amount ("$" stripped)
+    past_periods: list[GasPastPeriod] = field(default_factory=list)
 
 
 @dataclass(slots=True)

@@ -27,8 +27,9 @@ _ENTRY_DATA = {
 _COORDINATOR_DATA = GaggleData(
     consumption_period_usage=200.0,
     consumption_period_cost_aud=45.00,
-    unit_rate_aud_per_unit=0.33792,
-    supply_charge_aud_per_day=1.31714,
+    projection_cost_aud=90.00,
+    unit_rate_aud_per_unit=0.025630,
+    supply_charge_aud_per_day=0.799755,
     latest_cumulative_usage=200.0,
     latest_cumulative_cost_aud=45.00,
 )

@@ -39,6 +39,9 @@
       "consumption_period_cost": {
         "name": "Consumption cost this period"
       },
+      "projection_cost": {
+        "name": "Bill projection"
+      },
       "unit_rate": {
         "name": "Unit rate"
       },

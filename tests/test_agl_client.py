@@ -16,7 +16,7 @@ from custom_components.gaggle.agl.client import (
     AGLError,
     AGLRateLimitError,
 )
-from custom_components.gaggle.agl.models import Contract, PlanRates
+from custom_components.gaggle.agl.models import Contract, GasUsageSummary, PlanRates
 
 # ---------------------------------------------------------------------------
 # Synthetic response fixtures (same shape as live AGL API responses)
@@ -76,6 +76,26 @@ _TOKEN_RESPONSE = {
     "id_token": "eyFAKE.id.sig",
     "expires_in": 900,
     "token_type": "Bearer",
+}
+
+_GAS_USAGE_RESPONSE = {
+    "billPeriod": {
+        "start": {"date": "2026-06-12"},
+        "end": {"date": "2026-08-14"},
+        "currentDay": 48,
+        "maximumDaysInPeriod": 64,
+        "usage": {"amount": "$159.20", "quantity": "3441.21 MJ"},
+        "projection": {"amount": "$211.60", "quantity": ""},
+    },
+    "pastUsage": {
+        "items": [
+            {
+                "start": {"date": "2026-04-16"},
+                "end": {"date": "2026-06-11"},
+                "consumption": {"usageQuantity": 2523.0, "usageAmount": 98.252},
+            }
+        ]
+    },
 }
 
 
@@ -396,52 +416,72 @@ def test_unused_methods_removed_from_client() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Gas usage endpoints — explicit stubs pending Phase 0 capture
-# (docs/gas-api.md). Must raise NotImplementedError, never silently call an
-# Electricity endpoint under a new name.
+# Gas usage endpoint — confirmed real (Phase 0, 2026-07-30, docs/gas-api.md).
 # ---------------------------------------------------------------------------
 
 
-class TestGasUsageStubs:
-    def _make_client(self) -> AglClient:
+class TestGasUsageBasic:
+    """async_get_gas_usage_basic — confirmed real endpoint (Phase 0, 2026-07-30).
+
+    Not a guess and not a call to the Electricity endpoint — the URL and
+    response shape here are exactly what was captured against a real basic
+    gas meter. See docs/gas-api.md.
+    """
+
+    def _make_client(
+        self, response_data: dict, status: int = 200
+    ) -> tuple[AglClient, MagicMock]:
+        session = _make_session(response_data, status)
         auth = AglAuth("v1.tok", AsyncMock())
-        session = MagicMock()
-        return AglClient(auth, session)
-
-    async def test_gas_usage_summary_raises_not_implemented(self) -> None:
-        client = self._make_client()
-        with pytest.raises(NotImplementedError):
-            await client.async_get_gas_usage_summary("9999999999")
-
-    async def test_gas_usage_hourly_raises_not_implemented(self) -> None:
-        from datetime import date
-
-        client = self._make_client()
-        with pytest.raises(NotImplementedError):
-            await client.async_get_gas_usage_hourly("9999999999", date(2026, 7, 1))
-
-    async def test_gas_usage_hourly_previous_raises_not_implemented(self) -> None:
-        from datetime import date
-
-        client = self._make_client()
-        with pytest.raises(NotImplementedError):
-            await client.async_get_gas_usage_hourly_previous(
-                "9999999999", date(2026, 7, 1)
-            )
-
-    async def test_stubs_never_touch_the_session(self) -> None:
-        """A stub that accidentally made an HTTP call would be the exact
-        "silently reports electricity as gas" footgun the stubs exist to
-        prevent — assert the session is never touched."""
-        from datetime import date
-
-        client = self._make_client()
-        for coro in (
-            client.async_get_gas_usage_summary("9999999999"),
-            client.async_get_gas_usage_hourly("9999999999", date(2026, 7, 1)),
-            client.async_get_gas_usage_hourly_previous("9999999999", date(2026, 7, 1)),
+        with patch(
+            "custom_components.gaggle.agl.client.AglAuth.async_ensure_valid_token",
+            new_callable=AsyncMock,
+            return_value="test_access_token",
         ):
-            with pytest.raises(NotImplementedError):
-                await coro
-        client._session.get.assert_not_called()
-        client._session.post.assert_not_called()
+            client = AglClient(auth, session)
+        return client, session
+
+    async def test_parses_gas_usage_summary(self) -> None:
+        client, _ = self._make_client(_GAS_USAGE_RESPONSE)
+        with patch.object(
+            client._auth,
+            "async_ensure_valid_token",
+            new_callable=AsyncMock,
+            return_value="tok",
+        ):
+            summary = await client.async_get_gas_usage_basic("9999999999")
+
+        assert isinstance(summary, GasUsageSummary)
+        assert summary.usage_so_far_mj == pytest.approx(3441.21)
+        assert len(summary.past_periods) == 1
+
+    async def test_requests_the_confirmed_real_url(self) -> None:
+        """Must hit /v2/usage/basic/Gas/{contract} — NOT /Electricity/... —
+        with isRestricted=False and unit=MJ."""
+        client, session = self._make_client(_GAS_USAGE_RESPONSE)
+        with patch.object(
+            client._auth,
+            "async_ensure_valid_token",
+            new_callable=AsyncMock,
+            return_value="tok",
+        ):
+            await client.async_get_gas_usage_basic("9999999999")
+
+        called_url = session.get.call_args[0][0]
+        assert "/v2/usage/basic/Gas/9999999999" in called_url
+        assert "isRestricted=False" in called_url
+        assert "unit=MJ" in called_url
+        assert "Electricity" not in called_url
+
+    async def test_rate_limit_raises(self) -> None:
+        client, _ = self._make_client({}, status=429)
+        with (
+            patch.object(
+                client._auth,
+                "async_ensure_valid_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ),
+            pytest.raises(AGLRateLimitError),
+        ):
+            await client.async_get_gas_usage_basic("9999999999")

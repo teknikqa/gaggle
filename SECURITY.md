@@ -1,6 +1,6 @@
 # Security Policy
 
-`gaggle` is a pre-alpha sibling of
+`gaggle` is a pre-release sibling of
 [`haggle`](https://github.com/NaanyaBiz/haggle) (AGL electricity → HA Energy
 dashboard). This document is intentionally lighter than haggle's — it covers
 the essentials for a project at this stage; expect it to grow as the project

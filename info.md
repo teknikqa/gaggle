@@ -9,10 +9,11 @@ not publicly documented and may change at any time.
 Pulls smart-meter gas usage from AGL Australia and feeds it into the Home
 Assistant Energy dashboard using AGL's authenticated mobile API.
 
-> **Status: pre-alpha, not yet functional.** The auth flow and contract
-> discovery work; gas usage data does not flow yet, pending a real AGL gas
-> API capture. See the repo README for detail. Do not install expecting
-> data in your Energy dashboard yet.
+> **Status: pre-release, functional against a basic (non-smart) gas
+> meter.** A basic gas meter has no interval/daily data — AGL only exposes
+> a current-period estimate plus a window of already-billed past periods,
+> so the Energy dashboard gets one bar per completed billing period
+> (roughly bimonthly), not a daily chart. No release has shipped yet.
 
 ## Setup
 
@@ -26,20 +27,22 @@ Assistant Energy dashboard using AGL's authenticated mobile API.
 
 ## Energy dashboard
 
-Once usage data flows: add the **`gaggle:consumption_<contract>`** statistic
-as your dashboard's *Gas consumption* source — never the `sensor.…`
-entities (they update once per day and would chart a whole day as one bar
-on the wrong date).
+Add the **`gaggle:consumption_<contract>`** statistic as your dashboard's
+*Gas consumption* source — never the `sensor.…` entities (they update once
+per poll and would chart a whole day as one bar on the wrong date).
 
 Full guide:
 [docs/energy-dashboard.md](https://github.com/NaanyaBiz/gaggle/blob/main/docs/energy-dashboard.md)
 
 ## Sensors
 
-- **Consumption / Consumption this period** — usage total and current
-  bill-period usage.
-- **Consumption cost** — AUD for the current bill period.
+- **Consumption / Consumption this period** — cumulative total and current
+  bill-period usage (the current period is AGL's own estimate).
+- **Consumption cost / Bill projection** — AUD so far this period, and
+  AGL's own forecast for the full bill.
 - **Unit rate / Supply charge** — your tariff and daily supply charge.
+  Gas plans are typically tiered; the unit rate sensor reads the highest
+  ("Thereafter") tier.
 
 ## Provenance
 

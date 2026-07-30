@@ -16,12 +16,12 @@ callback for TOFU validation. This module is connector-agnostic.
 Token endpoint: POST https://secure.agl.com.au/oauth/token (grant=refresh_token).
 Access tokens expire in 900 s (15 min); refresh when exp - now < 120 s (2 min).
 
-Gas usage endpoints: nobody has captured AGL's real gas usage API traffic
-yet (Phase 0, see docs/gas-api.md). `async_get_gas_usage_summary` and
-`async_get_gas_usage_hourly[_previous]` are therefore explicit
-NotImplementedError stubs — NOT calls to the Electricity endpoint. Do not
-"fix" them by pointing at `/Electricity/...`; that would silently report
-electricity data as gas data.
+Gas usage: `async_get_gas_usage_basic` calls the confirmed real endpoint
+(Phase 0 capture, 2026-07-30, see docs/gas-api.md) for a BASIC (non-smart)
+gas meter — there is no interval/hourly endpoint because no interval data
+exists for a basic meter. A smart gas meter may expose a different,
+still-unconfirmed endpoint; do not assume this one covers it without a
+separate capture from a smart-metered gas account.
 """
 
 from __future__ import annotations
@@ -46,19 +46,18 @@ from ..const import (
 )
 from .models import (
     Contract,
+    GasUsageSummary,
     PlanRates,
     TokenSet,
 )
 from .parser import (
+    parse_gas_usage_basic,
     parse_overview,
     parse_plan,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import date
-
-    from .models import BillPeriod, IntervalReading
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -360,46 +359,25 @@ class AglClient:
         return parse_overview(data)
 
     # --- Usage (gas) ---
-    #
-    # Nobody has captured AGL's real gas usage API traffic yet — that capture
-    # (Phase 0, see docs/gas-api.md) is a prerequisite for implementing these.
-    # They deliberately do NOT call `/usage/smart/Electricity/...`: doing so
-    # would silently report electricity readings as gas data, which is worse
-    # than not implementing the feature at all.
 
-    async def async_get_gas_usage_summary(self, contract_number: str) -> BillPeriod:
-        """Fetch the current gas billing-period summary (endpoint TBD).
+    async def async_get_gas_usage_basic(self, contract_number: str) -> GasUsageSummary:
+        """Fetch the current period + billing history for a BASIC gas meter.
 
-        Stub — raises NotImplementedError until Phase 0 confirms the real
-        gas usage-summary endpoint path and response shape.
+        Confirmed real endpoint (Phase 0 capture, 2026-07-30, see
+        docs/gas-api.md). Unlike the sibling electricity integration, this
+        is the ONLY gas usage call needed per poll — the response already
+        includes both the current (estimated) period and a window of
+        already-billed past periods, so there is no per-day backfill loop
+        here. A smart-metered gas account may expose a different endpoint
+        with real interval data; this method has only been confirmed
+        against a basic meter and must not be assumed to cover that case.
         """
-        raise NotImplementedError(
-            "Gas usage endpoint not yet captured — see docs/gas-api.md (Phase 0)"
+        url = (
+            f"{self.BASE_URL}/api/v2/usage/basic/Gas/{contract_number}"
+            "?isRestricted=False&unit=MJ"
         )
-
-    async def async_get_gas_usage_hourly(
-        self, contract_number: str, day: date
-    ) -> list[IntervalReading]:
-        """Fetch one day of gas usage intervals (endpoint TBD).
-
-        Stub — raises NotImplementedError until Phase 0 confirms the real
-        gas interval-usage endpoint path, response envelope, and unit
-        (MJ vs m³; see GAS_USAGE_UNIT in const.py).
-        """
-        raise NotImplementedError(
-            "Gas usage endpoint not yet captured — see docs/gas-api.md (Phase 0)"
-        )
-
-    async def async_get_gas_usage_hourly_previous(
-        self, contract_number: str, day: date
-    ) -> list[IntervalReading]:
-        """Fetch one day of gas usage intervals for a previous bill period.
-
-        Stub — same reason as `async_get_gas_usage_hourly`.
-        """
-        raise NotImplementedError(
-            "Gas usage endpoint not yet captured — see docs/gas-api.md (Phase 0)"
-        )
+        data = await self._get(url)
+        return parse_gas_usage_basic(data)
 
     # --- Plan ---
 

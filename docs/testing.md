@@ -31,11 +31,9 @@ without recorded acceptance on a live HA instance.
 
 ## Coverage floor
 
-Set `--cov-fail-under` in `ci.yml` once the surviving test suite has a
-stable baseline post-strip (check actual coverage after Phase 1 lands; the
-line lived at 89% in `haggle` but that number is meaningless carried over
-verbatim to a much smaller, stub-heavy codebase). Treat it as a ratchet —
-moves up as the total rises, never lowered to make a PR pass.
+`--cov-fail-under=87` in `ci.yml` (88% combined on green, 2026-07-30 —
+~1pt headroom). Treat it as a ratchet — moves up as the total genuinely
+rises, never lowered to make a PR pass.
 
 ## When live-HA manual testing is required
 
@@ -48,6 +46,9 @@ external users).
 ## Fixtures
 
 Committed fixtures use the canonical anonymised placeholders
-(`1234567890` / `9999999999` / `1 Sample Street SUBURB QLD 4000`). Never
-commit a capture with real customer identifiers — see
-`tests/fixtures/PROVENANCE.md` and AGENTS.md § Adding a New Endpoint.
+(`1234567890` / `9999999999` / `1 Sample Street SUBURB QLD 4000`) for every
+identifier. Two (`gas_usage_basic_response.json`, `gas_plan_response.json`)
+are real captures with those identifiers replaced — kept because the real
+usage/cost figures are the reconciliation evidence, per
+`tests/fixtures/PROVENANCE.md`. Never commit a capture with real customer
+identifiers — see PROVENANCE.md and AGENTS.md § Adding a New Endpoint.

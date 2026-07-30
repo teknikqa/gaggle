@@ -79,13 +79,13 @@ jobs:
       # --cov-fail-under lives HERE, not in pyproject addopts, so local
       # single-file runs (uv run pytest tests/test_parser.py) stay usable —
       # a subset run computes low coverage by construction and would always
-      # trip an addopts-level floor. Reset for gaggle's stripped-down tree
-      # (ported from haggle, solar/ToU removed): 87.0% combined (lines+
-      # branches) on first green run post-strip. Floor 85 = regression gate
-      # with ~2pt headroom for the still-unimplemented gas usage path.
+      # trip an addopts-level floor. gaggle's tree (ported from haggle,
+      # solar/ToU removed, gas usage endpoint implemented against a real
+      # capture): 88.0% combined (lines+branches) on green, 2026-07-30.
+      # Floor 87 = regression gate with ~1pt headroom.
       # Ratchet UP as the total rises; never lower it to make a PR pass.
       - name: Pytest
-        run: uv run pytest --cov-fail-under=85
+        run: uv run pytest --cov-fail-under=87
 
   gitleaks:
     name: Gitleaks (full history)

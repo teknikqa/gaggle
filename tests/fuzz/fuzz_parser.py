@@ -35,11 +35,11 @@ from custom_components.gaggle.agl import parser
 
 for _fn_name in (
     "parse_overview",
-    "parse_interval_readings",
-    "parse_daily_readings",
-    "parse_bill_period",
+    "parse_gas_usage_basic",
     "parse_plan",
     "_safe_float",
+    "_label_to_float",
+    "_as_nonneg_int",
     "_as_dict",
     "_as_list",
     "_as_str",
@@ -61,16 +61,13 @@ def test_one_input(data: bytes) -> None:
     except Exception:
         return
 
-    for reading in parser.parse_interval_readings(obj):
-        _check_amount(reading.kwh)
-        _check_amount(reading.cost_aud)
-
-    for daily in parser.parse_daily_readings(obj):
-        _check_amount(daily.kwh)
-        _check_amount(daily.cost_aud)
-
-    bill = parser.parse_bill_period(obj)
-    _check_amount(bill.consumption_kwh)
+    summary = parser.parse_gas_usage_basic(obj)
+    _check_amount(summary.cost_so_far_aud)
+    _check_amount(summary.usage_so_far_mj)
+    _check_amount(summary.projection_aud)
+    for period in summary.past_periods:
+        _check_amount(period.usage_mj)
+        _check_amount(period.cost_aud)
 
     plan = parser.parse_plan(obj)
     _check_amount(plan.supply_charge_cents_per_day)

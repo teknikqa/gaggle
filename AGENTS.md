@@ -4,15 +4,17 @@
 > AGL Australia **gas** smart-meter data from AGL's undocumented mobile API
 > and feeds it into HA's Energy dashboard via `import_statistics()`.
 >
-> **Status: pre-alpha.** Ported from
-> [`haggle`](https://github.com/NaanyaBiz/haggle) (the same thing for AGL
-> **electricity**, including solar feed-in and Time-of-Use — none of that
-> applies here). Auth, contract discovery, and the statistics-import
-> machinery work. The actual gas usage fetch is an explicit
-> `NotImplementedError` stub, because nobody has captured AGL's real gas
-> usage API traffic yet. See **`docs/gas-api.md`** — that capture (Phase 0)
-> is the current blocking work, and nothing about usage/cost data should be
-> "implemented" by guessing at it.
+> **Status: pre-release, functional against a basic (non-smart) gas
+> meter.** Ported from [`haggle`](https://github.com/NaanyaBiz/haggle) (the
+> same thing for AGL **electricity**, including solar feed-in and
+> Time-of-Use — none of that applies here). Auth, contract discovery, the
+> real gas usage fetch, and the statistics-import machinery all work,
+> confirmed against a real AGL account (Phase 0 capture, 2026-07-30 — see
+> **`docs/gas-api.md`**). The confirmed shape turned out to be fundamentally
+> different from `haggle`'s: a basic gas meter has no interval data at all,
+> so gaggle imports one sparse statistic point per completed billing period
+> (~bimonthly), not an hourly chart. No release has shipped yet — see
+> `docs/releasing.md` for what's left before one does.
 
 This file is the canonical documentation for both human contributors and AI
 agents. `CLAUDE.md` is a symlink to this file.
@@ -36,7 +38,7 @@ uv run ruff format custom_components/ tests/
 uv run mypy custom_components/gaggle
 
 # Validate manifest
-python scripts/validate_manifest.py custom_components/gaggle/manifest.json
+uv run python scripts/validate_manifest.py custom_components/gaggle/manifest.json
 
 # Run all pre-commit hooks
 uv run pre-commit run --all-files
@@ -59,16 +61,16 @@ Test strategy: [docs/testing.md](docs/testing.md).
 custom_components/gaggle/
 ├── __init__.py          # async_setup_entry / async_unload_entry / async_remove_entry + GaggleRuntimeData
 ├── manifest.json         # HACS/HA metadata; hassfest validates this
-├── const.py               # all constants — DOMAIN, API hosts, config-entry keys, data keys, GAS_FUEL_TYPE, GAS_USAGE_UNIT
+├── const.py               # all constants — DOMAIN, API hosts, config-entry keys, GAS_FUEL_TYPE, GAS_USAGE_UNIT ("MJ", confirmed), GAS_RATE_TYPE
 ├── config_flow.py         # PKCE authorize URL → user pastes callback → exchange → select_contract (filtered to GAS_FUEL_TYPE)
 ├── diagnostics.py         # anonymized config-entry diagnostics (schema v3) — public-safe
-├── coordinator.py         # GaggleCoordinator: 30-day backfill (throttled, 429-aware) + incremental statistics import; catches the gas-usage NotImplementedError once/cycle and leaves usage/cost data unpopulated rather than faking it
-├── sensor.py               # 6 SensorEntityDescription entries; GaggleEnergySensor
+├── coordinator.py         # GaggleCoordinator: ONE usage call + ONE plan call per poll (no per-day backfill loop — AGL returns the whole current+past-periods window in one shot); imports past_periods as sparse per-billing-period statistics with baseline continuity
+├── sensor.py               # 7 SensorEntityDescription entries; GaggleEnergySensor
 ├── agl/
 │   ├── __init__.py
-│   ├── client.py           # AglAuth (JWT expiry + token rotation) + AglClient (overview/plan — real; gas usage-fetch — NotImplementedError stubs, see docs/gas-api.md)
-│   ├── models.py           # TokenSet, Contract, IntervalReading (generic, not yet wired), DailyReading, BillPeriod, PlanRates
-│   ├── parser.py           # JSON → typed dataclasses; parse_overview/parse_plan are real; parse_interval_readings kept as generic fuzz-tested infra for when Phase 0 lands
+│   ├── client.py           # AglAuth (JWT expiry + token rotation) + AglClient: overview/plan/gas-usage-basic all REAL, confirmed endpoints
+│   ├── models.py           # TokenSet, Contract, GasPastPeriod, GasUsageSummary, PlanRates
+│   ├── parser.py           # JSON → typed dataclasses; parse_overview/parse_plan/parse_gas_usage_basic all real, confirmed
 │   └── pinning.py          # SPKI extraction helper for Trust-On-First-Use TLS pinning
 ├── strings.json            # translatable config-flow strings
 └── translations/en.json    # English strings (must mirror strings.json)
@@ -76,32 +78,32 @@ custom_components/gaggle/
 tests/
 ├── conftest.py                      # _auto_enable_custom_integrations fixture
 ├── fixtures/
-│   ├── PROVENANCE.md                 # fixture provenance — all synthetic/anonymised; gas fixtures blocked on Phase 0
-│   ├── hourly_response.json          # generic 30-min interval shape (not currently exercised by any client method — kept as parser test input)
-│   ├── overview_response.json        # /v3/overview with accounts + a gas contract
-│   ├── plan_response.json            # /v2/plan/energy with gstInclusiveRates
-│   └── bill_period_response.json     # usage summary shape (not currently exercised — parser test input)
+│   ├── PROVENANCE.md                 # fixture provenance — gas_usage_basic/gas_plan are real anonymised captures (Phase 0, 2026-07-30); rest synthetic
+│   ├── overview_response.json        # /v3/overview with accounts + a contract
+│   ├── plan_response.json            # /v2/plan/energy — generic/flat shape (fuel-agnostic parser test)
+│   ├── gas_plan_response.json        # real captured gas plan — TIERED c/MJ pricing
+│   └── gas_usage_basic_response.json # real captured /v2/usage/basic/Gas response
 ├── test_init.py                      # setup/unload smoke tests
 ├── test_config_flow.py               # PKCE step navigation (user → exchange → select_contract, gas-only filtering)
-├── test_agl_client.py                # AglAuth token rotation + AglClient HTTP methods + gas-stub NotImplementedError behaviour + pin-check wiring
+├── test_agl_client.py                # AglAuth token rotation + AglClient HTTP methods (overview/plan/gas-usage-basic, all real) + pin-check wiring
 ├── test_const.py                     # base64 sanity-check on AGL_AUTH0_CLIENT
-├── test_parser.py                    # parse_interval_readings, parse_overview, parse_plan, _safe_float
+├── test_parser.py                    # parse_overview, parse_plan (incl. tiered gas), parse_gas_usage_basic, _safe_float — 100% coverage
 ├── test_pinning.py                   # SPKI extraction + host-name guards
 ├── fuzz/
 │   ├── fuzz_parser.py                # atheris harness — parser totality + numeric guards (run by fuzz.yml)
 │   └── requirements.txt              # hash-pinned atheris (Scorecard Pinned-Dependencies)
-├── test_coordinator_statistics.py    # backfill, incremental resume, idempotency, numeric guards, gas-stub handling
-├── test_recorder_statistics.py       # sum-chain scenarios vs the REAL recorder (recorder_mock)
-├── test_sensor.py                    # sensor descriptions
+├── test_coordinator_statistics.py    # period-statistics aggregation, baseline continuity, tiered-rate tier selection, failure-aware cadence
+├── test_recorder_statistics.py       # sum-chain scenarios vs the REAL recorder (recorder_mock) — incl. the aged-out-period baseline regression guard
+├── test_sensor.py                    # sensor descriptions, registration, native values
 └── test_diagnostics.py               # leak tests (token/contract/account/SPKI never serialize) + schema shape
 
 docs/
-├── gas-api.md            # Phase 0 spec — what a real gas API capture needs to answer before the stubs can be implemented
-├── energy-dashboard.md   # user guide (not yet functional — usage data doesn't flow)
+├── gas-api.md            # CONFIRMED Phase 0 findings — real endpoint, real response shape, what's still open (smart-meter gas)
+├── energy-dashboard.md   # user guide — which statistic to add, what "sparse per-period bars" means
 ├── releasing.md          # release acceptance policy (lightweight; grow once a release actually ships)
 ├── testing.md            # test strategy — four layers, coverage floor, when live-HA manual testing is required
 ├── diagnostics.md        # diagnostics schema reference
-└── threat-model.md       # lightweight living threat model — grows once gas usage data flows
+└── threat-model.md       # lightweight living threat model — grow once this has real users
 
 scripts/
 ├── access-review.sh          # quarterly access review (SECURITY.md) — read-only, maintainer-run
@@ -119,7 +121,7 @@ scripts/
 .github/
 ├── settings/              # declared state of the GitHub control plane (rulesets, repo settings) — see settings/README.md; weekly drift check
 ├── workflows/
-│   ├── ci.yml              # ruff + mypy + pytest (Python 3.14, coverage floor 85 — reset post-strip, see the file's comment) + gitleaks full-history scan + dependency-review + shellcheck/actionlint/zizmor
+│   ├── ci.yml              # ruff + mypy + pytest (Python 3.14, coverage floor 87, see the file's comment) + gitleaks full-history scan + dependency-review + shellcheck/actionlint/zizmor
 │   ├── hacs.yml             # HACS validation
 │   ├── hassfest.yml         # Home Assistant integration manifest validation
 │   ├── release.yml          # tag-triggered Release (first-party gh CLI)
@@ -136,14 +138,14 @@ scripts/
 SECURITY.md                # disclosure path + threat-model summary (lightweight — see the file for why)
 CONTRIBUTING.md            # dev loop + commit conventions + PR checklist
 CODE_OF_CONDUCT.md         # Contributor Covenant 2.1
-ROADMAP.md                  # direction + explicit non-goals (Phase 0 first, gas-only, single-retailer AGL, read-only, no telemetry)
+ROADMAP.md                  # direction + explicit non-goals (gas-only, single-retailer AGL, read-only, no telemetry)
 ```
 
 Note on what's *not* here versus `haggle`: no `docs/compliance/` (the
 19-control secure-SDLC framework), no `docs/agents/triage-routine.md` or
 `injection-corpus.md` (no automated triage routine runs against this repo),
 no `docs/delivery-metrics.md` / `scripts/delivery_metrics.py`. These are
-deliberately deferred while the project is pre-alpha — see `haggle`'s
+deliberately deferred while the project is pre-release — see `haggle`'s
 equivalents for the level of process scaffolding to grow into once gaggle
 has shipped a release and real users.
 
@@ -163,11 +165,10 @@ all of the following before it can be merged. The `/pr` command enforces this.
 | Memory files | Record non-obvious decisions, confirmed API behaviour, or user preferences that should survive context resets | `~/.claude/projects/.../memory/` |
 | `SECURITY.md` + `docs/threat-model.md` | Update when a change alters the security posture, trust boundaries, or accepted risks | repo root + `docs/` |
 
-**When Phase 0 lands** (the gas usage endpoint is captured and confirmed):
-this is a sprint boundary. Do the full sprint-boundary sweep — move
-completed `## [Unreleased]` items into a dated entry, do a full Repo Map
-audit, replace every "TBD"/"stub" claim in this file's AGL API section with
-the confirmed fact, and re-read `docs/testing.md`'s coverage-floor note
+**If a smart-metered gas account is ever captured**: that's a sprint
+boundary. Do the full sweep — move completed `## [Unreleased]` items into a
+dated entry, do a full Repo Map audit, add the new endpoint facts to this
+file's AGL API section, and re-read `docs/testing.md`'s coverage-floor note
 against the actual post-implementation number.
 
 ---
@@ -177,7 +178,7 @@ against the actual post-implementation number.
 | Agent | File | Trigger condition |
 |---|---|---|
 | `ha-integration-architect` | `.claude/agents/ha-integration-architect.md` | Edits to `__init__.py`, `config_flow.py`, `coordinator.py`, `sensor.py`; HA-pattern questions |
-| `agl-api-explorer` | `.claude/agents/agl-api-explorer.md` | Any work in `agl/`; new AGL endpoints; raw HTTP questions — **also owns the "don't guess the gas endpoint" rule** |
+| `agl-api-explorer` | `.claude/agents/agl-api-explorer.md` | Any work in `agl/`; new AGL endpoints; raw HTTP questions — **also owns the "don't guess at an unconfirmed endpoint" rule** |
 | `energy-domain-expert` | `.claude/agents/energy-domain-expert.md` | `state_class`, `device_class`, `unit_of_measurement` changes; `import_statistics()` usage |
 | `ha-test-writer` | `.claude/agents/ha-test-writer.md` | After every change in `custom_components/gaggle/`; proactively |
 | `release-manager` | `.claude/agents/release-manager.md` | Only via `/release` command |
@@ -207,8 +208,8 @@ a feature worktree — always open a PR (the `guard-main-branch` hook blocks
 direct pushes).
 
 ```bash
-./scripts/wt new feat/gas-usage-endpoint   # create
-./scripts/wt rm feat/gas-usage-endpoint    # remove when done (refuses if dirty)
+./scripts/wt new feat/tiered-rate-threshold   # create
+./scripts/wt rm feat/tiered-rate-threshold    # remove when done (refuses if dirty)
 ```
 
 ---
@@ -236,10 +237,11 @@ time to fix it this PR.
 
 ## AGL API — Key Facts
 
-### Contract discovery + auth — CONFIRMED, fuel-agnostic
+All CONFIRMED via a live mitmproxy capture against the project maintainer's
+own AGL account, 2026-07-30 (Phase 0). Full narrative + what's still open:
+[`docs/gas-api.md`](docs/gas-api.md).
 
-These are real, working, unchanged from `haggle` (same AGL account, same
-mobile API surface):
+### Auth + contract discovery — fuel-agnostic, unchanged from `haggle`
 
 - **Auth host**: `https://secure.agl.com.au`. **Data host**:
   `https://api.platform.agl.com.au`.
@@ -259,82 +261,109 @@ mobile API surface):
   integration locks itself out on the next restart.
 - **Contract discovery**: `GET /mobile/bff/api/v3/overview` →
   `accounts[].accountNumber`, `accounts[].contracts[].contractNumber`,
-  `.type` (`"gasContract"` for gas — real observed value), `.meterType`.
+  `.type` (`"gasContract"` for gas), `.meterType` (`"basic"` confirmed on
+  the captured account — non-smart, manually/self-read meter).
   `contractNumber` ≠ `accountNumber` — use `contractNumber` in all data
   paths. The config flow filters discovered contracts to `GAS_FUEL_TYPE`
   (`const.py`) since gaggle is gas-only.
-- **Plan/rates**: `GET /mobile/bff/api/v2/plan/energy/{contractNumber}` —
-  real, fuel-agnostic, returns `gstInclusiveRates` (supply charge as a
-  `c/day` row) and `gstExclusiveRates`. **Flat gas usage-rate extraction is
-  intentionally NOT implemented** — the confirmed rate-type string for a
-  gas usage row (`c/MJ`, `c/m³`, or something else) is unknown until Phase
-  0 captures a real gas plan response; see the TODO in
-  `coordinator._fetch_and_import`.
-- **Required headers on data endpoints** (confirmed for
-  overview/plan; **unconfirmed but assumed** for whatever gas usage
-  endpoint gets captured, since all are served by the same BFF):
-  `Client-Flavor`, `Client-Device`, `Accept-Language`, `Accept-Features`
-  (see `AGL_ACCEPT_FEATURES` in `const.py` — includes solar/electricity
-  feature-flag strings because it's the real header AGL's BFF expects, not
-  gaggle logic; don't "clean" it).
+- **Required headers on data endpoints**: `Client-Flavor`, `Client-Device`,
+  `Accept-Language`, `Accept-Features` (see `AGL_ACCEPT_FEATURES` in
+  `const.py` — includes solar/electricity feature-flag strings because
+  it's the real header AGL's BFF expects, not gaggle logic; don't "clean"
+  it). Confirmed sent alongside overview/plan/gas-usage calls in the
+  capture; not confirmed to be strictly *required* on the gas usage
+  endpoint specifically (untested without them).
 
-### Gas usage — UNKNOWN, Phase 0 blocked
+### Gas usage — CONFIRMED, basic (non-smart) meter
 
-**Nobody has captured AGL's real gas usage API traffic.** `haggle`'s
-electricity pattern is
+**The real endpoint does NOT mirror `haggle`'s electricity shape.**
+`haggle`'s pattern is
 `GET /api/v2/usage/smart/Electricity/{contractNumber}/Current/Hourly?period=...&scaling=...`.
-Do **not** assume the gas equivalent substitutes `Gas` for `Electricity` in
-that path, or that it shares granularity (30-min), response envelope, or
-required query params — none of that is confirmed for gas.
+The real, confirmed, implemented gas endpoint is:
 
-`AglClient.async_get_gas_usage_summary`, `async_get_gas_usage_hourly`, and
-`async_get_gas_usage_hourly_previous` are explicit `NotImplementedError`
-stubs (`agl/client.py`). `GaggleCoordinator._fetch_and_import` catches that
-once per cycle and leaves `consumption_period_usage`,
-`consumption_period_cost_aud`, and interval-derived statistics unpopulated
-— sensors read `unknown` rather than fabricated data.
+```
+GET /mobile/bff/api/v2/usage/basic/Gas/{contractNumber}?isRestricted=False&unit=MJ
+```
 
-**What Phase 0 needs to answer** — full detail in
-[`docs/gas-api.md`](docs/gas-api.md): the real URL path(s), required
-headers, response envelope shape, the outer/inner-field trap (see below),
-units (MJ vs m³), and granularity (interval vs daily vs billing-period-only
-for basic meters).
+Implemented in `AglClient.async_get_gas_usage_basic` / parsed by
+`parse_gas_usage_basic` into `GasUsageSummary` (`agl/models.py`).
 
-**One confirmed, cross-fuel lesson to apply once captured**: AGL's
-electricity interval responses carry both an outer field
-(`consumption.quantity` — the real meter read, confirmed against the AGL
-portal CSV export) and an inner `consumption.values.quantity` (a
-DPI/chart-scaled helper that undercounts by 4-73% with no consistent
-ratio — reading it caused a real v0.1.0/v0.2.0-beta production bug in
-`haggle`). **Assume the same trap exists for gas** and reconcile whichever
-field looks like source of truth against the AGL app or a real gas bill
-before trusting it — don't assume the electricity-side field name even
-applies.
+**No interval or daily data exists for this meter type.** The response
+gives:
+- The **current billing period** as an ESTIMATE (`billPeriod.usage`) plus
+  AGL's own bill PROJECTION (`billPeriod.projection`) — not a meter read.
+  Sensor-only data (`consumption_period_usage`/`cost_aud`,
+  `projection_cost_aud`); never imported as statistics.
+- A bounded **window of already-billed past periods**
+  (`pastUsage.items[]`, 5 in the capture) — real, actual totals via the
+  numeric `usageQuantity`/`usageAmount` fields (prefer these over the
+  sibling formatted `quantity`/`amount` display strings, which need
+  string parsing). This is the ONLY source of real historical data, and
+  it's what feeds the `gaggle:*` statistics — one sparse point per
+  completed billing period (~bimonthly), not hourly.
 
-### Polling cadence (design carried over, numbers may need revisiting)
+**Units: MJ, confirmed** (`unitOfMeasurement` and `quantity` suffixes
+throughout). `GAS_USAGE_UNIT` in `const.py`.
+
+**What's still open** (see `docs/gas-api.md` for detail): whether a
+smart-metered gas account exposes a different endpoint with real interval
+data (unconfirmed — this capture is from a basic meter); whether the
+confirmed headers are strictly required on this endpoint.
+
+### Plan / rates — CONFIRMED, tiered pricing
+
+`GET /mobile/bff/api/v2/plan/energy/{contractNumber}` — real, fuel-agnostic
+endpoint, returns `gstInclusiveRates` (supply charge as a `c/day` row) and
+`gstExclusiveRates`. **Real gas plans use TIERED/block `c/MJ` pricing** —
+multiple detail rows ("First N MJ" / "Next N MJ" / "Thereafter"), each a
+different rate — not a single flat rate like the sibling electricity
+integration's `type == "c/kWh"` assumption. `parse_plan` collects the raw
+allowlisted rows generically (fuel-agnostic, unchanged); picking a single
+"the" rate is a `coordinator.py` decision:
+`_fetch_and_import` selects the LAST `c/MJ` detail row (`GAS_RATE_TYPE` in
+`const.py`), typically "Thereafter", as a documented simplification —
+computing the actual marginal tier from cumulative usage-to-date would
+need parsing thresholds out of free-text titles (e.g. "First 1644 MJ"),
+which is a real option for a future enhancement, not implemented to avoid
+a fragile regex-in-title dependency.
+
+### Polling cadence
 
 | Data | Interval | Reason |
 |---|---|---|
-| Gas usage (once implemented) | 24 h | Placeholder — `haggle`'s electricity data lags 24-48h behind AEMO; gas lag is unknown until Phase 0 (could be days for digital meters, months for basic-meter billing cycles) |
-| Plan / overview | Same as `haggle` pattern, TBD | Rarely changes |
+| Gas usage summary + plan | 24 h (`SCAN_INTERVAL`) | Keeps the current-period estimate reasonably fresh; the underlying data barely changes faster than daily |
 | Token refresh | Just-in-time (< 2 min to `exp`) | tokens expire at 15 min |
 | After a FAILED poll | 30 min (`RETRY_INTERVAL_ON_ERROR`) | Same self-healing pattern as `haggle` — a transient error shouldn't cost a full poll cycle and look like "the poll never ran" |
 
-**Trailing rewindow (self-healing) — design kept from `haggle`**: once
-initial backfill is complete, every poll re-fetches the trailing
-`REWINDOW_DAYS`. `async_add_external_statistics` is idempotent on
-`(statistic_id, start)` so the overwrite is safe. This machinery is wired
-and tested even though the usage fetch itself is a stub.
+**No per-day backfill loop.** Unlike `haggle`, one `async_get_gas_usage_basic`
+call returns the whole current-period-plus-past-periods window in one
+shot — there's nothing to throttle or chunk across multiple requests.
 
-**Baseline lookup — the one subtle bug class to re-verify once real data
-flows**: the cumulative-sum baseline is looked up in `_import_intervals`
-using the actual earliest fetched-interval hour as the cutoff, NOT a
-`fetch_start`-derived UTC midnight. This is what caused a real phantom-kWh
-production bug in `haggle` (AGL's `period=` query is interpreted in the
-contract's local timezone, so a UTC-midnight cutoff folds hours of
-about-to-be-overwritten old sums into the baseline). The design is ported
-unchanged in `coordinator._resolve_fetch_start` / `_import_intervals` — it
-applies to any fuel, but has not yet been exercised against real gas data.
+**Baseline continuity — the one subtle bug class carried over from
+`haggle` and still real here**: AGL's `pastUsage.items[]` is a bounded
+WINDOW (5 periods in the capture), not full account history. An older
+already-imported period can age out of a later poll's response. If the
+cumulative-sum baseline were assumed to start at 0 for whatever's in the
+CURRENT response, an aged-out period would make the sum reset and step
+DOWN — breaking `TOTAL_INCREASING` monotonicity, the same defect CLASS as
+`haggle`'s v0.3.0 phantom-spike bug (different root cause — that one was a
+UTC/local-timezone cutoff, this one is a rolling window — same consequence
+class). `coordinator._import_periods` looks the baseline up from the
+recorder before the earliest period in each batch
+(`_get_baseline_sums`/`_baseline_sums_before`, two-stage: cheap window then
+reach-back), exactly like `haggle` does for its hourly rewindow. Regression
+test: `tests/test_recorder_statistics.py::test_aged_out_period_baseline_continuity`
+(real recorder, not mocked).
+
+**Row placement — a documented simplification, not a bug**: each period's
+statistic row is keyed at midnight UTC of the period's END date
+(`coordinator._midnight_utc`), not local midnight. This can place the
+Energy-dashboard bar up to ~14h off the "true" boundary depending on the
+contract's timezone. Unlike `haggle`'s hourly rewindow (where the
+equivalent shortcut caused real double-counting because the same hour gets
+overwritten repeatedly), a gaggle period row is written ONCE and never
+revisited with a different baseline — so the consequence here is purely
+cosmetic (which day a ~2-month bar renders on), not a correctness bug.
 
 ### TLS pinning (Trust-On-First-Use) — CONFIRMED, unchanged
 
@@ -350,21 +379,21 @@ fires) so a legitimate AGL cert rotation doesn't brick installs.
 
 ## Energy Dashboard Contract
 
-- `device_class = ENERGY` (or `GAS` if the real gas API turns out to
-  return volume, m³), `state_class = TOTAL_INCREASING`,
-  `native_unit_of_measurement = GAS_USAGE_UNIT` (currently `"MJ"` —
-  **unconfirmed**, see `const.py`).
+- `device_class = ENERGY`, `state_class = TOTAL_INCREASING`,
+  `native_unit_of_measurement = GAS_USAGE_UNIT` (`"MJ"`, confirmed).
 - Historical data MUST be fed via `async_add_external_statistics()`, never
-  live state updates — AGL data is always historical.
+  live state updates.
 - Statistic IDs per contract:
   - `gaggle:consumption_<contract_number>` — `has_sum=True`,
     **`unit_class="energy"`** (required for the statistic to appear in the
     Energy dashboard's consumption-source picker — `unit_class=None`
-    silently hides it).
+    silently hides it). Sparse: one point per completed billing period,
+    NOT hourly/daily — there's no underlying interval data for a basic
+    gas meter to build a smoother chart from.
   - `gaggle:cost_<contract_number>` — AUD, `has_sum=True`,
     `unit_class=None`.
-- Resume point: `get_last_statistics(hass, 1, stat_id, True, {"start",
-  "sum"})`. Each import is idempotent on `(statistic_id, start)`.
+- Idempotent on `(statistic_id, start)` — safe to re-import the same
+  period every poll.
 - No solar, no per-tariff series — those were `haggle`-only (electricity
   solar feed-in / Time-of-Use). Gas has neither.
 
@@ -420,10 +449,8 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
   otherwise deleting it leaves orphan entity-registry rows.
 - **Don't clear `gaggle:*` external statistics in `async_remove_entry`** —
   that's the user's own historical data.
-- **Don't fire backfill requests in a tight loop** — sleep
-  `BACKFILL_INTER_REQUEST_DELAY` between days.
-- **Don't derive the cumulative-sum baseline cutoff from a `fetch_start`
-  UTC midnight** — see "Baseline lookup" above.
+- **Don't derive a statistics baseline by assuming it starts at 0 for
+  whatever's in the current response** — see "Baseline continuity" above.
 - **Don't let non-`AGLError` exception types escape `AglClient`** — every
   coordinator catch site is designed around the `AGLError` family.
   `AglClient._get` and `async_force_refresh` wrap transport/parse failures
@@ -433,25 +460,22 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
 - **Don't re-add remote ruff/mypy pre-commit hooks** — they'd run a second
   toolchain copy that drifts from `uv.lock`.
 - **Don't lower `--cov-fail-under` in `ci.yml` to make a PR pass** — it's
-  a ratchet gate. It was reset to 85 post-strip (see the file's comment);
-  raise it as coverage genuinely rises, never lower it to unblock a PR.
+  a ratchet gate. Raise it as coverage genuinely rises, never lower it to
+  unblock a PR.
 
-**Gas-specific, new to this project**:
+**Gas-specific**:
 
-- **Don't guess at the gas usage endpoint.** Don't substitute `Gas` for
-  `Electricity` in the known electricity path, don't invent a response
-  shape, don't wire the usage-fetch stubs to call `/Electricity/...` as a
-  "temporary" measure — that would silently report electricity data as
-  gas data, which is worse than the feature not existing. See
-  `docs/gas-api.md`.
-- **Don't invent gas plan rate-shape parsing** (e.g. block pricing) without
-  a real captured gas plan response. `coordinator._fetch_and_import`
-  leaves `unit_rate_aud_per_unit` as `None` with a documented TODO rather
-  than guessing at the rate-type string.
-- **Don't assume `GAS_USAGE_UNIT = "MJ"` is confirmed.** It's a reasonable
-  default (AGL bills gas in MJ) but unconfirmed until Phase 0. It's a
-  single named constant precisely so this is a one-line change once
-  confirmed — don't scatter the literal string elsewhere.
+- **Don't guess at an unconfirmed AGL endpoint.** The basic-meter gas
+  usage endpoint is now confirmed and implemented, but if you're adding
+  support for a SMART-metered gas account, that's a different, unconfirmed
+  endpoint — capture it for real (see "Contributing — Adding a New
+  Endpoint" below) rather than assuming it mirrors either the basic-gas or
+  electricity shape.
+- **Don't compute a tiered-plan "effective rate" by parsing usage
+  thresholds out of the free-text `title` string** without a real reason
+  to — `coordinator.py`'s last-tier simplification is documented and
+  intentional; if you do build the threshold-aware version, keep the
+  simplification as a fallback for plans whose titles don't parse.
 
 ---
 
@@ -467,12 +491,12 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
    (`1234567890` / `9999999999` / `1 Sample Street SUBURB QLD 4000`).
 3. Add an anonymised fixture under `tests/fixtures/<name>_response.json`.
 4. Add a parser in `agl/parser.py` and a corresponding `AglClient` method
-   in `agl/client.py` — replacing the relevant `NotImplementedError` stub.
+   in `agl/client.py`.
 5. Add tests against the fixture. Do not commit any captures with real
    customer values.
-6. Update this file's "AGL API — Key Facts" section: move the fact from
-   "UNKNOWN" to confirmed, with the reconciliation evidence (date, what
-   you checked it against).
+6. Update this file's "AGL API — Key Facts" section with the confirmed
+   fact, including the reconciliation evidence (date, what you checked it
+   against).
 
 ---
 
@@ -481,7 +505,7 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
 Conventional Commits, enforced by the `commitlint` pre-commit hook:
 
 ```
-feat: implement gas usage interval fetch
+feat: compute effective tiered-plan rate from usage-to-date
 fix: handle missing consumption field
 chore(release): v0.1.0
 ci: add hacs workflow
@@ -491,7 +515,7 @@ Every commit MUST include the `Co-Authored-By: Claude` trailer (enforced
 by the `require-claude-coauthor` pre-commit hook):
 
 ```bash
-git commit -m "feat: implement gas usage interval fetch
+git commit -m "feat: compute effective tiered-plan rate from usage-to-date
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
@@ -503,8 +527,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 This codebase was ported from
 [`haggle`](https://github.com/NaanyaBiz/haggle) (commit
 `04ebc21b53315ec9b176b71c2abfbe69d80ce8d7`) by Claude Code, with solar and
-Time-of-Use code paths removed and the electricity usage-fetch replaced by
-an explicit stub pending a real gas API capture. Reviewed by the human
+Time-of-Use code paths removed and the gas usage fetch implemented against
+a real captured API contract (Phase 0, 2026-07-30). Reviewed by the human
 maintainer. All commits carry `Co-Authored-By: Claude` trailers.
 
 ### AI toolchain

@@ -1,28 +1,32 @@
 """Sensor entities for gaggle.
 
-Cumulative consumption / cost use import_statistics() to feed historical
-data into the HA Energy dashboard (data is always for past intervals; a
-live state sensor would attribute everything to "now"). Entities backed
-by live coordinator data use the standard CoordinatorEntity pattern.
+Cumulative consumption / cost mirror the gaggle:* statistics fed via
+import_statistics() from real, already-billed periods (see coordinator.py
+— a basic gas meter has no interval data, so those statistics are sparse,
+one point per ~bimonthly billing period, not hourly). Entities backed by
+live coordinator data use the standard CoordinatorEntity pattern.
 
-Six sensors total:
+Seven sensors total:
   - consumption_period / consumption_period_cost — current billing-period
-    usage / cost (device-card values; None/`unknown` until the gas
-    usage-summary endpoint is implemented — see docs/gas-api.md)
+    usage / cost. These are AGL's own ESTIMATE, not a meter read — real
+    data only exists once a period completes and becomes statistics.
+  - projection_cost — AGL's own forecast for the full current period's bill.
   - consumption / consumption_cost — cumulative total usage / cost
     (device-card values, seeded from the gaggle:* statistics)
-  - unit_rate — usage rate (AUD per unit; None until the gas plan
-    rate-shape TODO in coordinator.py is resolved)
+  - unit_rate — usage rate (AUD per unit). Real gas plans are tiered/block
+    pricing; this reads the LAST tier (typically "Thereafter") as a
+    documented simplification — see coordinator.py.
   - supply_charge — supply charge (AUD/day; from the real, fuel-agnostic
     plan endpoint)
 
 state_class choices:
   - TOTAL_INCREASING would be wrong here: these entities update once per
-    24 h poll, not continuously, so none of them are Energy-dashboard
-    sources — the gaggle:* statistics fed via import_statistics() are.
-  - TOTAL for the period cost (a cumulative AUD total for a known period)
+    poll, not continuously, so none of them are Energy-dashboard sources —
+    the gaggle:* statistics fed via import_statistics() are.
+  - TOTAL for the period/projection cost (a cumulative AUD total for a
+    known period)
   - unset on rate sensors (MEASUREMENT, no device_class) and on the raw
-    kWh/MJ totals (see the "no Energy source" note below)
+    usage totals (see the "no Energy source" note below)
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ from .const import (
     DATA_CONSUMPTION_KWH,
     DATA_CONSUMPTION_PERIOD,
     DATA_CONSUMPTION_PERIOD_COST,
+    DATA_PROJECTION_COST,
     DATA_SUPPLY_CHARGE,
     DATA_UNIT_RATE,
     DOMAIN,
@@ -98,6 +103,16 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key=DATA_CONSUMPTION_PERIOD_COST,
         translation_key="consumption_period_cost",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement="AUD",
+        suggested_display_precision=2,
+    ),
+    # --- Bill projection (device-card value) ---
+    # AGL's own forecast for the full current period, not derived locally.
+    SensorEntityDescription(
+        key=DATA_PROJECTION_COST,
+        translation_key="projection_cost",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL,
         native_unit_of_measurement="AUD",
@@ -159,7 +174,7 @@ class GaggleEnergySensor(CoordinatorEntity[GaggleCoordinator], SensorEntity):
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
             manufacturer="Gaggle",
-            model="AGL smart gas meter (unofficial integration)",
+            model="AGL gas meter (unofficial integration)",
             entry_type=DeviceEntryType.SERVICE,
         )
 

@@ -1,41 +1,70 @@
-# AGL Gas Usage API — Phase 0 (TODO)
+# AGL Gas Usage API — Phase 0 (CONFIRMED, 2026-07-30)
 
-`gaggle` cannot fetch real gas usage data yet. Nobody has captured AGL's
-actual gas smart-meter API traffic — the equivalent of the `Electricity`
-usage endpoints (`/mobile/bff/api/v2/usage/smart/Electricity/{contractNumber}/...`)
-documented for the sibling `haggle` integration has no confirmed gas
-counterpart. Until a human does a live capture against a real AGL gas
-account (a mitm session against the AGL mobile app, the same way the
-electricity endpoints were originally documented), `AglClient.async_get_gas_usage_summary`
-and `async_get_gas_usage_hourly[_previous]` stay explicit
-`NotImplementedError` stubs rather than guesses — inventing an endpoint
-path or response shape risks either a wrong integration or, worse, a
-plausible-looking one that silently calls `/Electricity/...` and reports
-electricity numbers as gas.
+Confirmed by a live mitmproxy capture against the project maintainer's own
+AGL account (real gas contract, **basic** — i.e. non-smart — meter). See
+`tests/fixtures/PROVENANCE.md` for the capture provenance/consent note.
 
-## What the capture needs to answer
+**The endpoint does NOT mirror `haggle`'s electricity shape.** It is not
+`/usage/smart/Gas/{contractNumber}/Current/Hourly?...` — guessing that
+would have been wrong. The real, implemented endpoint is:
 
-- **URL path(s)**: the gas equivalent of `Current/Hourly` and
-  `Previous/Hourly` (and the bill-period summary endpoint) — does AGL use a
-  `Gas` resource segment analogous to `Electricity`/`ElectricitySolar`, and
-  is the URL shape otherwise identical (`{contractNumber}/{Current|Previous}/Hourly?period=...&scaling=...`)?
-- **Headers**: do the gas endpoints require the same `Client-Flavor` /
-  `Client-Device` / `Accept-Features` / `scaling` headers as the electricity
-  ones, or a different `Accept-Features` feature-flag list?
-- **Response envelope**: same `sections[].items[]` shape with a per-item
-  block keyed by type (`consumption` on electricity), or something else
-  entirely for gas?
-- **Units and field names**: is usage reported in MJ (megajoules — the AGL
-  gas-billing norm) or m³ (raw meter units, sometimes converted client-side)?
-  Confirm the exact field the app treats as ground truth, the same way
-  `consumption.quantity` (outer) was confirmed against a portal CSV export
-  for electricity — don't assume an inner/outer field pair behaves the same
-  way without reconciling against a real bill or app figure.
-- **Granularity**: does gas report in 30-minute intervals like electricity's
-  smart meters, or daily/other granularity (many residential gas meters are
-  not interval-metered the way electricity smart meters are)?
+```
+GET /mobile/bff/api/v2/usage/basic/Gas/{contractNumber}?isRestricted=False&unit=MJ
+```
 
-Once a capture answers these, replace the stubs in `agl/client.py` following
-the pattern in `AGENTS.md` → "Contributing — Adding a New Endpoint": add an
-anonymised fixture, a parser in `agl/parser.py`, the real `AglClient`
-method, and tests against the fixture.
+Implemented in `AglClient.async_get_gas_usage_basic` / parsed by
+`agl/parser.py::parse_gas_usage_basic` into `GasUsageSummary`. Reference
+fixture: `tests/fixtures/gas_usage_basic_response.json` (anonymised real
+capture).
+
+## What was confirmed
+
+- **No interval or daily data exists for a basic gas meter.** The response
+  gives the current billing period as an ESTIMATE + AGL's own bill
+  PROJECTION (not a meter read), plus a bounded window of already-billed
+  PAST periods (5 in the capture) with real totals. There is no
+  electricity-equivalent smooth hourly/daily series to build an Energy
+  dashboard chart from — the `gaggle:*` statistics are therefore one
+  sparse point per completed billing period (~bimonthly), not hourly. See
+  `coordinator.py`.
+- **Units: MJ**, confirmed throughout (`unitOfMeasurement`, `quantity`
+  suffixes). No m³ ambiguity. `GAS_USAGE_UNIT` in `const.py`.
+- **Headers**: the standard AGL BFF header set (`Client-Flavor`,
+  `Client-Device`, `Accept-Features`, etc. — see `AGL_ACCEPT_FEATURES` in
+  `const.py`) was sent alongside this call in the capture. Not confirmed
+  to be strictly *required* (untested without them), but kept for
+  consistency with the rest of the BFF.
+- **Plan/rates**: real gas plans use TIERED/block `c/MJ` pricing ("First N
+  MJ" / "Next N MJ" / "Thereafter"), each a different rate, plus a `c/day`
+  supply charge — confirmed via `tests/fixtures/gas_plan_response.json`.
+  Not a single flat rate like the sibling electricity integration assumes.
+  `coordinator.py` picks the LAST tier (typically "Thereafter") as a
+  documented simplification rather than parsing usage thresholds out of
+  the free-text `title` strings.
+- **Contract discovery**: `/v3/overview` already returns gas contracts
+  with `meterType: "basic"` and `type: "gasContract"` — both real observed
+  values, unchanged from what was already documented pre-capture.
+
+## What is still open
+
+- **Smart (interval-metered) gas contracts.** This capture is from a
+  BASIC meter account. Whether AGL exposes a different endpoint with real
+  interval data for smart gas meters is unconfirmed — do not assume the
+  `basic` path covers that case. If you have access to a smart-metered gas
+  account, a follow-up capture would answer this.
+- **Whether the confirmed headers are strictly required** on this
+  endpoint (untested without them — see above).
+- **Tiered-rate threshold parsing.** The coordinator picks the last tier
+  rather than computing which tier applies to the household's actual
+  cumulative usage this period (the thresholds are only present as
+  substrings of free-text titles, e.g. "First 1644 MJ") — a real option
+  for a future enhancement, not implemented to avoid a fragile
+  regex-in-title dependency. See the docstring in
+  `coordinator.py::_fetch_and_import`.
+
+## Adding support for a smart gas meter (if/when confirmed)
+
+Follow `AGENTS.md` → "Contributing — Adding a New Endpoint": capture
+against a real smart-metered gas account, add an anonymised fixture, a
+parser function, and an `AglClient` method — do not assume it reuses
+`parse_gas_usage_basic`'s shape without a capture proving it does.

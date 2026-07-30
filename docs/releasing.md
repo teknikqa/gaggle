@@ -6,20 +6,22 @@ releases (hotfixes) may skip the ladder only under the hotfix rule below.
 `release.yml` marks any tag containing `-` as a prerelease.
 
 This is a lighter version of `haggle`'s release policy, appropriate for a
-pre-alpha project with no shipped release yet. Grow it (beta-soak duration
-requirements, a formal acceptance-evidence record, a downgrade test) once
-gas usage data is actually flowing — `haggle`'s `docs/releasing.md` is the
-reference for what that looks like at maturity.
+pre-release project with no shipped tag yet. Grow it (beta-soak duration
+requirements, a formal acceptance-evidence record) as gaggle picks up real
+users — `haggle`'s `docs/releasing.md` is the reference for what that looks
+like at maturity.
 
 ## Before the first release
 
-No stable or beta tag should ship until:
+The gas usage endpoint is implemented against a real captured API contract
+(`docs/gas-api.md`) — that gate is cleared. No stable or beta tag should
+ship until:
 
-1. The gas usage endpoint is implemented against a real captured API
-   contract (`docs/gas-api.md`), not a guess.
-2. At least one full billing period on a real account reconciles against
-   the AGL app (or a real gas bill) to within the API's own rounding.
-3. CI is green: ruff, mypy, pytest, hassfest, HACS validation.
+1. At least one full billing period on a real account (beyond the
+   maintainer's own, which the Phase 0 capture already validated)
+   reconciles against the AGL app or a real gas bill to within the API's
+   own rounding.
+2. CI is green: ruff, mypy, pytest, hassfest, HACS validation.
 
 ## Hotfix rule (stables that skip the ladder)
 

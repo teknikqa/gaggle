@@ -1,9 +1,9 @@
 """Tests for custom_components/gaggle/sensor.py.
 
-gaggle registers a fixed set of six sensors (no conditional registration —
+gaggle registers a fixed set of seven sensors (no conditional registration —
 unlike the sibling electricity integration's ToU/solar sensors, there's no
-per-contract feature to gate on): current billing-period usage/cost,
-cumulative total usage/cost, usage rate, supply charge.
+per-contract feature to gate on): current billing-period usage/cost, bill
+projection, cumulative total usage/cost, usage rate, supply charge.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.gaggle.const import (
@@ -22,6 +23,7 @@ from custom_components.gaggle.const import (
     DATA_CONSUMPTION_KWH,
     DATA_CONSUMPTION_PERIOD,
     DATA_CONSUMPTION_PERIOD_COST,
+    DATA_PROJECTION_COST,
     DATA_SUPPLY_CHARGE,
     DATA_UNIT_RATE,
     DOMAIN,
@@ -42,6 +44,7 @@ _ALL_KEYS = {
     DATA_CONSUMPTION_COST,
     DATA_CONSUMPTION_PERIOD,
     DATA_CONSUMPTION_PERIOD_COST,
+    DATA_PROJECTION_COST,
     DATA_UNIT_RATE,
     DATA_SUPPLY_CHARGE,
 }
@@ -51,6 +54,7 @@ def _data(
     *,
     period_usage: float | None = 0.0,
     period_cost: float | None = 0.0,
+    projection_cost: float | None = 0.0,
     unit_rate: float | None = 0.3,
     supply_charge: float | None = 1.0,
     cumulative_usage: float = 0.0,
@@ -59,6 +63,7 @@ def _data(
     return GaggleData(
         consumption_period_usage=period_usage,
         consumption_period_cost_aud=period_cost,
+        projection_cost_aud=projection_cost,
         unit_rate_aud_per_unit=unit_rate,
         supply_charge_aud_per_day=supply_charge,
         latest_cumulative_usage=cumulative_usage,
@@ -98,10 +103,10 @@ async def _setup_keys(hass: HomeAssistant, data: GaggleData | None) -> list[str]
 
 
 class TestSensorRegistration:
-    async def test_all_six_sensors_registered(self, hass: HomeAssistant) -> None:
+    async def test_all_seven_sensors_registered(self, hass: HomeAssistant) -> None:
         keys = await _setup_keys(hass, _data())
         assert set(keys) == _ALL_KEYS
-        assert len(keys) == len(SENSOR_DESCRIPTIONS) == 6
+        assert len(keys) == len(SENSOR_DESCRIPTIONS) == 7
 
     async def test_registration_does_not_depend_on_coordinator_data(
         self, hass: HomeAssistant
@@ -114,12 +119,12 @@ class TestSensorRegistration:
 
 
 class TestNativeValue:
-    async def test_period_usage_and_cost_unavailable_until_gas_endpoint_implemented(
+    async def test_period_usage_and_cost_read_none_as_unavailable(
         self, hass: HomeAssistant
     ) -> None:
-        """The gas usage-summary endpoint is a NotImplementedError stub
-        (docs/gas-api.md) — the coordinator leaves these None rather than
-        faking a value, so the sensors read unavailable."""
+        """Defensive: if coordinator data ever has None here (e.g. a
+        malformed response degraded to defaults with no usable current
+        period), the sensor reads unavailable rather than raising."""
         entry = _make_entry_with_coordinator(
             hass, _data(period_usage=None, period_cost=None)
         )
@@ -134,12 +139,18 @@ class TestNativeValue:
         assert period_sensor.native_value is None
         assert period_cost_sensor.native_value is None
 
-    async def test_unit_rate_unavailable_pending_gas_rate_shape(
+    async def test_projection_reads_real_value(self, hass: HomeAssistant) -> None:
+        entry = _make_entry_with_coordinator(hass, _data(projection_cost=211.60))
+        coordinator = entry.runtime_data.coordinator
+        by_key = {d.key: d for d in SENSOR_DESCRIPTIONS}
+        sensor = GaggleEnergySensor(coordinator, entry, by_key[DATA_PROJECTION_COST])
+        assert sensor.native_value == pytest.approx(211.60)
+
+    async def test_unit_rate_none_when_plan_has_no_mj_rows(
         self, hass: HomeAssistant
     ) -> None:
-        """The flat usage-rate extraction is a documented TODO in the
-        coordinator (unconfirmed gas plan rate-type string) — None, not a
-        guessed value."""
+        """The tiered-plan rate picker (coordinator.py) returns None when
+        the plan has no c/MJ detail row — never a guessed value."""
         entry = _make_entry_with_coordinator(hass, _data(unit_rate=None))
         coordinator = entry.runtime_data.coordinator
         by_key = {d.key: d for d in SENSOR_DESCRIPTIONS}
@@ -198,7 +209,11 @@ class TestSensorDescriptions:
         )
 
         by_key = {d.key: d for d in SENSOR_DESCRIPTIONS}
-        for key in (DATA_CONSUMPTION_COST, DATA_CONSUMPTION_PERIOD_COST):
+        for key in (
+            DATA_CONSUMPTION_COST,
+            DATA_CONSUMPTION_PERIOD_COST,
+            DATA_PROJECTION_COST,
+        ):
             desc = by_key[key]
             assert desc.device_class is SensorDeviceClass.MONETARY, key
             assert desc.state_class is SensorStateClass.TOTAL, key
