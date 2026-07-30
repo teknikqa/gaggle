@@ -20,12 +20,16 @@ before a beta: broader validation across more real accounts (see
 "Validate across meter types" below), and the standard release-acceptance
 bar in `docs/releasing.md`.
 
-**Validate across meter types.** The Phase 0 capture is from one basic
-(manually/self-read) meter account. Most Australian gas meters are basic;
-some networks run remotely-read digital meters that may expose different
-(possibly interval) data — unconfirmed. Recruit a tester with a
-digitally-read gas meter to find out whether that changes the product
-story, and validate the tiered-plan rate parsing against more real plans.
+**Validate across meter types — opportunistic, not actively pursued.**
+The Phase 0 capture is from the maintainer's own basic (manually/self-read)
+meter, which is also the only gas meter he currently has access to; a
+digitally-read/smart gas meter would need either his own provider
+upgrading him (possible in the future, not scheduled) or recruiting an
+external tester. Until either happens, whether a smart-metered account
+exposes different (possibly interval) data stays unconfirmed and gaggle
+targets basic meters only — see `docs/gas-api.md` § "still open". Not
+blocking a beta; picked up opportunistically if a tester or a meter
+upgrade shows up.
 
 **Consider computing the actual marginal tiered rate.** Today the unit-rate
 sensor reads the highest ("Thereafter") tier as a documented
