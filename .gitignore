@@ -16,6 +16,10 @@ env/
 
 # uv
 .uv/
+# uv.lock must be tracked (CI runs `uv lock --check`), but a machine-local
+# global gitignore can exclude it by name -- force it back in explicitly so
+# `git add uv.lock` (without -f) doesn't silently no-op after a relock.
+!uv.lock
 
 # Type checkers / linters
 .mypy_cache/
