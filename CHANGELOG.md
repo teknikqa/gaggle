@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-day throttled backfill/rewindow loop with a single usage-summary
   call per poll (AGL returns the whole current-period-plus-history window
   in one shot for this meter type).
+- Own brand assets (`custom_components/gaggle/brand/`): a "G" mark with a
+  blue gas-flame glyph and a `gaggle` wordmark, light and dark variants —
+  replacing placeholder PNGs that were byte-identical to `haggle`'s H+bolt
+  mark.
 
 ### Fixed
 
