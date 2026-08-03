@@ -308,7 +308,9 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
         account (electricity and gas), so the discovered list is filtered
         down to GAS_FUEL_TYPE before any of the single/multiple/none logic
         below runs. An account with only electricity contracts ends up with
-        an empty list here, same as an account with no contracts at all.
+        an empty list here, same as an account with no contracts at all --
+        both abort the flow rather than creating an entry with no contract
+        to poll.
         """
         errors: dict[str, str] = {}
 
@@ -327,7 +329,7 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
             self._contracts = [c for c in all_contracts if c.fuel_type == GAS_FUEL_TYPE]
 
         if not self._contracts:
-            return await self._async_create_entry(contract_number="", account_number="")
+            return self.async_abort(reason="no_gas_contract")
 
         if len(self._contracts) == 1:
             c = self._contracts[0]

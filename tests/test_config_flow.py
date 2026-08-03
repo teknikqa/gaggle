@@ -212,15 +212,27 @@ async def test_fetch_contracts_failure_shows_cannot_connect(
 
 
 async def test_unique_id_fallback_hashes_refresh_token(hass: HomeAssistant) -> None:
-    """When _fetch_contracts returns nothing, unique_id must be a hash, not a token prefix.
+    """When a discovered contract has no account/contract number, unique_id
+    must be a hash, not a token prefix.
 
     SAST-001 / SEC-001: HA's entity registry is plaintext JSON on disk; a leaked
     refresh-token prefix from there could be correlated against captured token
-    material. Hashing makes the on-disk identifier one-way.
+    material. Hashing makes the on-disk identifier one-way. This fallback is
+    defensive against a malformed AGL response (empty id fields on an
+    otherwise-valid contract) -- a wholly empty contract list now aborts the
+    flow instead (see test_only_electricity_contracts_aborts_the_flow), so it
+    no longer reaches this path.
     """
     import hashlib
 
     refresh_token = "v1.MdLHBM9JNbgB4ABUpW5K_FAKE_token_for_test_only"
+    malformed_contract = Contract(
+        contract_number="",
+        account_number="",
+        address="1 Sample Street SUBURB QLD 4000",
+        fuel_type="gasContract",
+        status="active",
+    )
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -237,7 +249,7 @@ async def test_unique_id_fallback_hashes_refresh_token(hass: HomeAssistant) -> N
         patch(
             "custom_components.gaggle.config_flow._fetch_contracts",
             new_callable=AsyncMock,
-            return_value=([], "cafef00d" * 8),  # no contracts → fallback path
+            return_value=([malformed_contract], "cafef00d" * 8),
         ),
         patch(
             "custom_components.gaggle.async_setup_entry",
@@ -334,11 +346,14 @@ async def test_electricity_contracts_are_filtered_out(hass: HomeAssistant) -> No
     assert result["data"][CONF_CONTRACT_NUMBER] == _CONTRACT.contract_number
 
 
-async def test_only_electricity_contracts_behaves_like_no_contracts(
+async def test_only_electricity_contracts_aborts_the_flow(
     hass: HomeAssistant,
 ) -> None:
     """An account with electricity but no gas contract ends up with an empty
-    filtered list — same path as an account with no contracts at all."""
+    filtered list -- same path as an account with no contracts at all. The
+    flow must abort rather than create an entry with no contract to poll:
+    that entry would "succeed" at setup and then fail every subsequent poll
+    against .../usage/basic/Gas/?isRestricted=False&unit=MJ."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -356,19 +371,14 @@ async def test_only_electricity_contracts_behaves_like_no_contracts(
             new_callable=AsyncMock,
             return_value=([_ELECTRICITY_CONTRACT], "cafef00d" * 8),
         ),
-        patch(
-            "custom_components.gaggle.async_setup_entry",
-            new_callable=AsyncMock,
-            return_value=True,
-        ),
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CALLBACK_URL_FIELD: callback_url},
         )
 
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_CONTRACT_NUMBER] == ""
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_gas_contract"
 
 
 def test_no_options_flow_module_export() -> None:

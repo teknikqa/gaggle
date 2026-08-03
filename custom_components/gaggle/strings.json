@@ -22,7 +22,8 @@
     },
     "abort": {
       "already_configured": "This AGL contract is already configured.",
-      "reauth_successful": "Reauthentication successful."
+      "reauth_successful": "Reauthentication successful.",
+      "no_gas_contract": "No gas contract was found on this AGL account. gaggle only supports gas -- for electricity, see the haggle integration."
     }
   },
   "entity": {

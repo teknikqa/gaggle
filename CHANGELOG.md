@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call per poll (AGL returns the whole current-period-plus-history window
   in one shot for this meter type).
 
+### Fixed
+
+- Config flow now aborts with a clear `no_gas_contract` reason when an AGL
+  account has no gas contract (or only electricity contracts), instead of
+  silently creating a config entry with `contract_number=""` that "succeeds"
+  at setup and then fails every subsequent poll.
+
 ### Removed
 
 - The per-day backfill/rewindow machinery, `IntervalReading`/`DailyReading`/
