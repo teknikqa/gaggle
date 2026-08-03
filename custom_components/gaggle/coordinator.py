@@ -306,17 +306,17 @@ class GaggleCoordinator(DataUpdateCoordinator[GaggleData]):
             stat_id_cons,
             f"AGL Gas Consumption ({contract})",
             GAS_USAGE_UNIT,
-            "energy",
-            period_cons,
-            initial_cons_sum,
+            unit_class="energy",
+            rows=period_cons,
+            initial_sum=initial_cons_sum,
         )
         cost_sum = self._emit_series(
             stat_id_cost,
             f"AGL Gas Cost ({contract})",
             "AUD",
-            None,
-            period_cost,
-            initial_cost_sum,
+            unit_class=None,
+            rows=period_cost,
+            initial_sum=initial_cost_sum,
         )
 
         self._latest_cumulative_usage = cons_sum
@@ -327,6 +327,7 @@ class GaggleCoordinator(DataUpdateCoordinator[GaggleData]):
         stat_id: str,
         name: str,
         unit: str,
+        *,
         unit_class: str | None,
         rows: dict[datetime, float],
         initial_sum: float,
