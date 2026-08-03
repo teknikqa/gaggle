@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Targets for next sprint
+
+- No open GitHub issues tracked yet — see `ROADMAP.md` for direction
+  (broader meter-type validation, opportunistic; computing the actual
+  marginal tiered rate instead of the documented last-tier
+  simplification).
+
+---
+
+## [0.1.0-beta.1] - 2026-08-03
+
+**Escaped defects closed this release:** 0.
+
+### First-release validation (`docs/releasing.md` gate)
+
+- Account: maintainer's own AGL gas account (basic/non-smart meter).
+- Billing period reconciled: 16 April 2026 – 11 June 2026.
+- Compared: gaggle's imported `gaggle:consumption_<contract>` /
+  `gaggle:cost_<contract>` totals for that period against the real AGL
+  bill / app for the same period.
+- Result: matched within the API's own rounding.
+- Checked: 30 July 2026.
+- Scope note: this validates gaggle's basic-meter import path against one
+  real account. Broader validation (a second account, or a smart-metered
+  account) remains opportunistic — see `ROADMAP.md`.
+
 ### Added
 
 - Project bootstrapped as a gas-only sibling of
