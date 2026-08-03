@@ -40,6 +40,7 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "custom_components/gaggle/bra
 
 def draw_flame(
     draw: ImageDraw.ImageDraw,
+    *,
     x0: float,
     y0: float,
     w: float,
@@ -88,8 +89,8 @@ def draw_mark(
 
     fw, fh = size * 0.34, size * 0.66
     fx, fy = x_off + size * 0.60, size * 0.17
-    draw_flame(draw, fx, fy, fw, fh, FLAME)
-    draw_flame(draw, fx, fy + fh * 0.20, fw, fh, FLAME_CORE, scale=0.5)
+    draw_flame(draw, x0=fx, y0=fy, w=fw, h=fh, fill=FLAME)
+    draw_flame(draw, x0=fx, y0=fy + fh * 0.20, w=fw, h=fh, fill=FLAME_CORE, scale=0.5)
 
 
 def draw_icon(size: int, ink: tuple[int, int, int, int]) -> Image.Image:

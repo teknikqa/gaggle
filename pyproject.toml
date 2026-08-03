@@ -26,12 +26,12 @@ dependencies = [
     # HA 2026.4 closed the 13 CVEs v0.1.0 inherited (SCA-M01..M05, SCA-L01..L08,
     # SCA-H02) via aiohttp==3.13.5 + cryptography>=46.0.6 + orjson>=3.11.6;
     # 2026.5.0 keeps those at-or-above. HA 2026.4+ also requires Python 3.14.2.
-    "homeassistant>=2026.7.2",
+    "homeassistant>=2026.7.4",
     # HA 2026.7.0 relaxed its exact aiohttp pin, so the resolver now lands
     # 3.14.1+ (closes the 2026-06/07 aiohttp advisory cluster; supersedes
     # Dependabot #106). Users always get aiohttp from HA core, not from us —
     # manifest.json ships no requirements; this floor is dev/editor tooling.
-    "aiohttp>=3.14.1",
+    "aiohttp>=3.14.3",
 ]
 
 [project.optional-dependencies]
@@ -45,13 +45,21 @@ dev = [
     # exact pin manufactured a guaranteed weekly Dependabot PR and caused
     # two resolver deadlocks (#106, #120). uv.lock is the reproducibility
     # authority; this range just has to keep resolution satisfiable.
-    "pytest-homeassistant-custom-component>=0.13.346,<0.14",
-    "ruff>=0.15.21",
+    #
+    # Capped below 0.13.349 as a deliberate exception to the above: every
+    # release from 0.13.349 through at least 0.13.351 exact-pins a HOME
+    # ASSISTANT BETA (2026.8.0b0/b2/b3), not a stable release. 0.13.348 is
+    # the newest that still pins a stable HA (2026.7.4, matching the
+    # runtime floor above). Re-open the range once upstream ships a 0.13.x
+    # release that pins a stable HA version again — don't widen it just to
+    # clear a Dependabot PR in the meantime.
+    "pytest-homeassistant-custom-component>=0.13.348,<0.13.349",
+    "ruff>=0.16.1",
     "mypy>=2.3.0",
-    "pre-commit>=4.6.0",
+    "pre-commit>=4.6.1",
     # Workflow security audit (CI step + pre-commit local hook). Rust binary
     # wheels from PyPI; version governed by uv.lock like ruff/mypy.
-    "zizmor>=1.27.0",
+    "zizmor>=1.28.0",
 ]
 
 [project.urls]
@@ -157,4 +165,10 @@ exclude_lines = [
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
+]
+
+[tool.uv]
+override-dependencies = [
+    "pillow>=12.3.0",
+    "pyjwt>=2.13.0",
 ]
