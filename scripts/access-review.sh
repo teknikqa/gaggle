@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quarterly access review for NaanyaBiz/gaggle (SECURITY.md "Access Review").
+# Quarterly access review for teknikqa/gaggle (SECURITY.md "Access Review").
 #
 # Read-only: asserts the expected access surface via the maintainer's local
 # `gh` auth and exits non-zero on drift. Deliberately NOT run in CI — the
@@ -11,8 +11,8 @@
 # Usage: ./scripts/access-review.sh
 set -euo pipefail
 
-REPO="NaanyaBiz/gaggle"
-EXPECTED_ADMIN="NaanyaBiz"
+REPO="teknikqa/gaggle"
+EXPECTED_ADMIN="teknikqa"
 FAILURES=0
 
 check() { # check <label> <actual> <expected>

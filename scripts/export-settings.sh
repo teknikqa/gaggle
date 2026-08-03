@@ -14,7 +14,7 @@
 # state (deleted baselines, null-ed policies, or partial arrays).
 set -euo pipefail
 
-REPO=${1:-NaanyaBiz/gaggle}
+REPO=${1:-teknikqa/gaggle}
 cd "$(git rev-parse --show-toplevel)"
 OUT=.github/settings
 mkdir -p "$OUT"

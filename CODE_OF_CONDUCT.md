@@ -16,7 +16,7 @@ lives at <https://www.contributor-covenant.org/version/2/1/code_of_conduct/>.
 Conduct issues, like security issues, are handled privately by the
 maintainer:
 
-- **Email**: `security@naanya.biz`
+- **Email**: `security@nm7.org`
 
 We will acknowledge reports within 5 business days and act in accordance
 with the Contributor Covenant's enforcement guidelines.

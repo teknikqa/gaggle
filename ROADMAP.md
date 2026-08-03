@@ -4,7 +4,7 @@ This roadmap states what `gaggle` intends to do — and deliberately will not do
 over roughly the next twelve months. It is a direction of travel, not a
 contract: `gaggle` is a single-maintainer, best-effort open-source project, and
 priorities shift as AGL changes its API and as users report issues. Tracked work
-lives in [GitHub issues](https://github.com/NaanyaBiz/gaggle/issues); the
+lives in [GitHub issues](https://github.com/teknikqa/gaggle/issues); the
 priority labels (`P1`/`P2`/`P3`) there are the live source of truth.
 
 _Last reviewed: 2026-07. Reviewed at least annually and at each minor release._

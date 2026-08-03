@@ -3,4 +3,4 @@
 # the key is the maintainer's PUBLIC ed25519 signing key (also registered
 # on the GitHub account). Rotating the signing key means updating this
 # file in the same PR-first change.
-security@naanya.biz ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGIn+591XkBrBaN3AQJGUczifcUlJsy3LM8NLWjFDsYZ
+security@nm7.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC+4kXhGx6VRpdrHL+XjVqZ1HGLnxx7NkwN/WAFxyh8LRt6UsJfofYF7gYQMlg2rsFnj/eyL7acFaeYsTVrRyf22ySz5BTtJLVDlcaAMIOt/00/VK0BTUAo1rxux9ZCNJ+gv9nCK6niCw3BhcHl4MSIww9hfz6c1rkR0gD96QYoeOe5ZgbEAc5TN979lp/4UnVqry9GJTD4oa65NZkZ+INXrk/zAplj5QPMgqqGOL0hqsuiI3IqhI6Iqi/Q3Kfmja7ZuNR/N+mdTytRC4puigZ69d+swYdpLpwcWk2UrcXubGyROUoUKHB+sN/yb81Kkjxkc6R5Vfp/k3VZs/DXnL0/

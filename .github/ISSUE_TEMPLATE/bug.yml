@@ -35,7 +35,7 @@ body:
         this box. The file is anonymized: it contains no tokens and no
         account or contract numbers (identifiers are replaced by stable
         `anon-…` references). See
-        [docs/diagnostics.md](https://github.com/NaanyaBiz/gaggle/blob/main/docs/diagnostics.md)
+        [docs/diagnostics.md](https://github.com/teknikqa/gaggle/blob/main/docs/diagnostics.md)
         for exactly what's in it.
       placeholder: Drag and drop the diagnostics .json file here.
     validations:

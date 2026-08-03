@@ -9,7 +9,7 @@ type, backfill state, timezone) in one step.
 **Settings → Devices & Services → Gaggle → ⋮ (three-dot menu) →
 Download diagnostics.** Drag the resulting `.json` file into the
 "Diagnostics file" box of the
-[bug report form](https://github.com/NaanyaBiz/gaggle/issues/new?template=bug.yml).
+[bug report form](https://github.com/teknikqa/gaggle/issues/new?template=bug.yml).
 
 ## What is (and isn't) in the file
 

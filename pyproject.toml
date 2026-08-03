@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "AGL Australia gas smart meter -> Home Assistant Energy dashboard"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Naanya Biz", email = "davosparent@gmail.com" }]
+authors = [{ name = "Nick Mathew", email = "nick@nm7.org" }]
 requires-python = ">=3.14.2"
 keywords = ["home-assistant", "hacs", "agl", "energy", "smart-meter", "australia"]
 classifiers = [
@@ -55,9 +55,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/NaanyaBiz/gaggle"
-Issues = "https://github.com/NaanyaBiz/gaggle/issues"
-Changelog = "https://github.com/NaanyaBiz/gaggle/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/teknikqa/gaggle"
+Issues = "https://github.com/teknikqa/gaggle/issues"
+Changelog = "https://github.com/teknikqa/gaggle/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["custom_components/gaggle"]

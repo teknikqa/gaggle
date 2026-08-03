@@ -5,14 +5,14 @@
     "recorder"
   ],
   "codeowners": [
-    "@naanyabiz"
+    "@teknikqa"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/NaanyaBiz/gaggle",
+  "documentation": "https://github.com/teknikqa/gaggle",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/NaanyaBiz/gaggle/issues",
+  "issue_tracker": "https://github.com/teknikqa/gaggle/issues",
   "loggers": [
     "custom_components.gaggle"
   ],

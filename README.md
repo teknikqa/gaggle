@@ -1,7 +1,7 @@
 # gaggle
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=NaanyaBiz&repository=gaggle&category=integration)
-[![Latest release](https://img.shields.io/github/v/release/NaanyaBiz/gaggle?include_prereleases&label=latest)](https://github.com/NaanyaBiz/gaggle/releases)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=teknikqa&repository=gaggle&category=integration)
+[![Latest release](https://img.shields.io/github/v/release/teknikqa/gaggle?include_prereleases&label=latest)](https://github.com/teknikqa/gaggle/releases)
 
 Home Assistant custom integration that pulls smart-meter **gas** usage from
 [AGL Australia](https://www.agl.com.au/) and feeds it into the HA Energy

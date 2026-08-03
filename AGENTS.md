@@ -130,7 +130,7 @@ scripts/
 │   ├── scorecard.yml        # weekly + on-push OpenSSF Scorecard self-assessment
 │   ├── fuzz.yml              # weekly deep run + PR smoke; corpus cached across runs; crash artifacts uploaded
 │   └── settings-drift.yml   # weekly: re-export rulesets + public repo settings, diff vs .github/settings/, issue on drift
-├── CODEOWNERS               # @naanyabiz owns everything
+├── CODEOWNERS               # @teknikqa owns everything
 └── dependabot.yml           # weekly pip + github-actions updates, grouped into one PR per ecosystem
 
 # Repo-root posture files

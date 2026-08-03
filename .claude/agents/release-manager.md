@@ -133,7 +133,7 @@ tag already exists, so never pre-create one in the UI.
   `gaggle.spdx.json`, `gaggle.cdx.json`, `gaggle.zip.sbom-spdx.sigstore`,
   `gaggle.zip.sbom-cdx.sigstore`, and `check-runs.json` (fail-open).
 - Verify provenance:
-  `gh release download v$VERSION -p 'gaggle.zip' -D /tmp && gh attestation verify /tmp/gaggle.zip --repo NaanyaBiz/gaggle`
+  `gh release download v$VERSION -p 'gaggle.zip' -D /tmp && gh attestation verify /tmp/gaggle.zip --repo teknikqa/gaggle`
 - HACS users will see the update within 24h (HACS polls tags).
 - CHANGELOG.md keeps its `## [Unreleased]` section (the bump PR should have
   left `### Targets for next sprint` under it).

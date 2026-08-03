@@ -32,7 +32,7 @@ Add the **`gaggle:consumption_<contract>`** statistic as your dashboard's
 per poll and would chart a whole day as one bar on the wrong date).
 
 Full guide:
-[docs/energy-dashboard.md](https://github.com/NaanyaBiz/gaggle/blob/main/docs/energy-dashboard.md)
+[docs/energy-dashboard.md](https://github.com/teknikqa/gaggle/blob/main/docs/energy-dashboard.md)
 
 ## Sensors
 

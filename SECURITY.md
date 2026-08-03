@@ -13,8 +13,8 @@ register, Scorecard posture, supply-chain gating, continuity plan).
 Please report suspected security issues **privately** via either of:
 
 1. **GitHub Private Security Advisories** —
-   <https://github.com/NaanyaBiz/gaggle/security/advisories/new>
-2. **Email** — `security@naanya.biz`.
+   <https://github.com/teknikqa/gaggle/security/advisories/new>
+2. **Email** — `security@nm7.org`.
 
 Please do **not** open a public issue for security reports. We aim to
 acknowledge reports within 5 business days.
