@@ -426,6 +426,14 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
   `docs/diagnostics.md` in the same PR when the shape changes.
 - **No committing directly to `main`** — the `guard-main-branch` hook
   blocks it. Use a feature branch + PR.
+- **Never set `user.signingkey`/`gpg.format ssh` repo-wide to the release
+  key** (`~/.ssh/gaggle_release.pub`). It's release-tag-only per
+  `.github/allowed_signers`'s own comment — setting it in `.git/config`
+  makes every regular commit sign with a key GitHub doesn't recognize as
+  yours, which silently fails the `protect-main` ruleset's "require signed
+  commits" check (discovered 2026-08-10, PR #8). Scope it to the tag
+  command only via `-c` flags — see `release-manager.md`'s "Tag the
+  squash-merge commit" section.
 - **No mutable GitHub Action refs** — pin every `uses: owner/action@…` to
   a 40-char commit SHA with a `# vX.Y` comment.
 - **Don't surface raw AGL/Auth0 response bodies in exceptions** that
