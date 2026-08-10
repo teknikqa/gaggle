@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bumped `cryptography` to 50.0.0 via `[tool.uv] override-dependencies`,
+  closing GHSA-g6cj-pr64-35w5 (PKCS#7 EnvelopedData decryption
+  Bleichenbacher oracle). Transitive-only (pulled in by
+  `hass-nabucasa`/`acme`), dev/CI tooling — never reaches a user's HA
+  install.
+
 ### Targets for next sprint
 
 - No open GitHub issues tracked yet — see `ROADMAP.md` for direction

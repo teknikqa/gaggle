@@ -171,4 +171,8 @@ exclude_lines = [
 override-dependencies = [
     "pillow>=12.3.0",
     "pyjwt>=2.13.0",
+    # GHSA-g6cj-pr64-35w5: PKCS#7 EnvelopedData decryption exposes a
+    # Bleichenbacher oracle. Transitive-only (via hass-nabucasa/acme), not
+    # closed by the homeassistant floor above (2026-08-10, Dependabot #19).
+    "cryptography>=50.0.0",
 ]
