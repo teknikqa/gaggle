@@ -107,17 +107,34 @@ entry.
 
 ## Tag the squash-merge commit (signed)
 
-Tag signing is on repo-wide (`gpg.format ssh`); the guard-main-branch hook
-requires the override prefix for any push from the main worktree — a tag
-push during a release is the sanctioned use:
+The release-signing SSH key is scoped to this one command only — it is
+NOT read from repo-wide git config (that setup caused every regular
+commit to sign with the release key and fail GitHub verification; fixed
+2026-08-10, see `.github/allowed_signers`'s own comment on why the keys
+must stay separate). Pass it via `-c` flags instead of relying on any
+persistent `user.signingkey`/`gpg.format` in `.git/config`:
 
 ```bash
 cd ~/projects/gaggle
 git fetch origin main && git pull --ff-only
-git tag -s "v$VERSION" origin/main -m "v$VERSION"
+git -c gpg.format=ssh \
+    -c user.signingkey=~/.ssh/gaggle_release.pub \
+    -c gpg.ssh.allowedSignersFile=.github/allowed_signers \
+    tag -s "v$VERSION" origin/main -m "v$VERSION"
 GAGGLE_ALLOW_MAIN_PUSH=1 git push origin "v$VERSION"
 ./scripts/wt rm chore/release-$VERSION
 ```
+
+Sanity-check the tag before pushing:
+
+```bash
+git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v "v$VERSION"
+# → "Good "git" signature for nick@nm7.org with ED25519 key ..."
+```
+
+The guard-main-branch hook requires the override prefix for any push
+from the main worktree — a tag push during a release is the sanctioned
+use.
 
 ⚠️ `release.yml` uses `gh release create` — it fails if a release for the
 tag already exists, so never pre-create one in the UI.
