@@ -13,13 +13,21 @@ jobs:
     name: HACS validation
     runs-on: ubuntu-latest
     steps:
-      # Runs before checkout: reads changed files from the GitHub API for
-      # both push and pull_request events, so there's no fetch-depth to
-      # get wrong. When nothing HACS validates changed, every step below
-      # is skipped and the job still reports success (required-check-safe
-      # — see AGENTS.md's Repo Map note on this file). Filter list is
+      # dorny/paths-filter can query the GitHub API directly for
+      # pull_request events (no checkout needed), but push events need a
+      # local git history to diff github.event.before..after — checkout
+      # must come first here, with full history since main only ever
+      # advances by one squash-merge commit at a time but a shallow depth
+      # isn't guaranteed to be safe against that. Only the HACS validation
+      # step itself is gated: when nothing HACS validates changed, it's
+      # skipped and the job still reports success (required-check-safe —
+      # see AGENTS.md's Repo Map note on this file). Filter list is
       # broader than hassfest.yml's because HACS also checks repo-level
       # metadata, not just custom_components/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Detect relevant changes
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -31,10 +39,6 @@ jobs:
               - 'README.md'
               - 'LICENSE'
               - '.github/workflows/hacs.yml'
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.filter.outputs.relevant == 'true'
-        with:
-          persist-credentials: false
       - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main@2026-01-26
         if: steps.filter.outputs.relevant == 'true'
         with:
