@@ -122,13 +122,13 @@ scripts/
 ├── settings/              # declared state of the GitHub control plane (rulesets, repo settings) — see settings/README.md; weekly drift check
 ├── workflows/
 │   ├── ci.yml              # ruff + mypy + pytest (Python 3.14, coverage floor 87, see the file's comment) + gitleaks full-history scan + dependency-review + shellcheck/actionlint/zizmor
-│   ├── hacs.yml             # HACS validation
-│   ├── hassfest.yml         # Home Assistant integration manifest validation
+│   ├── hacs.yml             # HACS validation — skips the actual validation step (via dorny/paths-filter) when the push/PR touches neither custom_components/, hacs.json, README.md, LICENSE, nor this file
+│   ├── hassfest.yml         # Home Assistant integration manifest validation — same paths-filter skip, scoped to custom_components/ + this file
 │   ├── release.yml          # tag-triggered Release (first-party gh CLI)
 │   ├── codeql.yml           # weekly + per-PR CodeQL Python scan
 │   ├── compat.yml           # weekly non-blocking suite vs latest phcc/HA (incl. beta)
 │   ├── scorecard.yml        # weekly + on-push OpenSSF Scorecard self-assessment
-│   ├── fuzz.yml              # weekly deep run + PR smoke; corpus cached across runs; crash artifacts uploaded
+│   ├── fuzz.yml              # weekly deep run (always) + PR smoke (only when the PR touches agl/, tests/fuzz/, tests/fixtures/, or deps — paths-filter skip, same mechanism as hacs.yml/hassfest.yml); corpus cached across runs; crash artifacts uploaded
 │   └── settings-drift.yml   # weekly: re-export rulesets + public repo settings, diff vs .github/settings/, issue on drift
 ├── CODEOWNERS               # @teknikqa owns everything
 └── dependabot.yml           # weekly pip + github-actions updates, grouped into one PR per ecosystem

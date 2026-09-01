@@ -11,7 +11,7 @@ without recorded acceptance on a live HA instance.
 |---|---|---|---|
 | 1. Unit | Parsers, client, models, const — pure Python against anonymised fixtures | `tests/test_parser.py`, `test_agl_client.py`, `test_const.py`, `test_pinning.py` | Every PR + push (CI required check) |
 | 2. Harness integration | Real HA core via `pytest-homeassistant-custom-component`: setup/unload, config flow, coordinator, sensors, diagnostics — recorder mocked at the boundary; PLUS `tests/test_recorder_statistics.py`, which runs sum-chain scenarios against a **real** recorder (`recorder_mock`), because a mocked seam is exactly where `haggle`'s baseline/spike-class bugs escaped | `tests/test_*.py` | Every PR + push (CI required check) |
-| 3. Fuzz | Atheris totality fuzzing of `agl/parser.py` — the trust boundary for attacker-influenceable JSON (TLS pinning is warn-only) | `tests/fuzz/`, `fuzz.yml` | Weekly deep run + smoke on every PR (required check) |
+| 3. Fuzz | Atheris totality fuzzing of `agl/parser.py` — the trust boundary for attacker-influenceable JSON (TLS pinning is warn-only) | `tests/fuzz/`, `fuzz.yml` | Weekly deep run (always) + smoke on PRs that touch `agl/`, `tests/fuzz/`, `tests/fixtures/`, or the dependency lockfile — required check either way; re-fuzzing unchanged parser code adds no new signal (`fuzz.yml`'s paths-filter step) |
 | 4. Acceptance (beta soak) | Beta prerelease soaked on a real HA instance against a real AGL gas account, validating against the AGL app / a real bill | HACS beta channel; recorded per `docs/releasing.md` | Every beta → stable promotion |
 
 ## Required depth per change type

@@ -3,11 +3,19 @@ name: Fuzz
 # Atheris fuzzing of the AGL response parsers (tests/fuzz/fuzz_parser.py).
 # The parsers are the trust boundary for attacker-influenceable JSON (TLS
 # pinning is warn-only — see SECURITY.md), so they must be total over
-# arbitrary input. Weekly deep run (600 s) + a 120 s smoke on EVERY PR —
-# unconditional (no paths: filter) so the check can be made required; a
-# path-filtered required check wedges non-matching PRs on an "expected"
-# status forever. Corpus persists across runs via actions/cache; crash
-# inputs upload as artifacts on failure.
+# arbitrary input. Weekly deep run (600 s) + a 120 s smoke on PRs that
+# touch the parser/harness (see the dorny/paths-filter step below).
+#
+# The TRIGGER stays unconditional (no `paths:` on `pull_request:` below)
+# — a path-filtered required-check TRIGGER wedges non-matching PRs on an
+# "expected" status forever, since protect-main has zero bypass actors.
+# Instead the job always runs and reports success; only the actual fuzz
+# run (and its setup) is skipped internally when nothing relevant
+# changed. Re-fuzzing unchanged parser code against the same corpus adds
+# no new information beyond the last run that touched it, or the weekly
+# deep run — the trust boundary is still covered whenever the parser or
+# harness actually changes. Corpus persists across runs via actions/cache;
+# crash inputs upload as artifacts on failure.
 
 on:
   schedule:
@@ -25,24 +33,54 @@ jobs:
     name: Fuzz AGL parsers (atheris)
     runs-on: ubuntu-latest
     steps:
+      # Schedule/dispatch runs always fuzz (that's the deep-run point of
+      # them); PRs only fuzz when they touch the parser, its tests/fuzz
+      # harness, its fixtures, or the dependency lockfile.
+      - name: Detect relevant changes
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            relevant:
+              - 'custom_components/gaggle/agl/**'
+              - 'tests/fuzz/**'
+              - 'tests/fixtures/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/fuzz.yml'
+
+      - name: Should fuzz this run
+        id: should_fuzz
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ steps.filter.outputs.relevant }}" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.should_fuzz.outputs.run == 'true'
         with:
           persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.should_fuzz.outputs.run == 'true'
         with:
           python-version: "3.14"
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        if: steps.should_fuzz.outputs.run == 'true'
         with:
           enable-cache: true
 
       - name: Install dependencies
+        if: steps.should_fuzz.outputs.run == 'true'
         run: uv sync --extra dev
 
       - name: Install atheris (hash-pinned)
+        if: steps.should_fuzz.outputs.run == 'true'
         run: uv pip install --require-hashes -r tests/fuzz/requirements.txt
 
       # Caches are immutable per key: every run saves under a fresh key and
@@ -51,6 +89,7 @@ jobs:
       # visible to every ref) but save only into their own PR scope — the
       # weekly scheduled runs are what deepen the persistent corpus.
       - name: Restore fuzz corpus
+        if: steps.should_fuzz.outputs.run == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/corpus
@@ -62,11 +101,13 @@ jobs:
         # Plain cp, not cp -n: coreutils >= 9.2 exits non-zero when -n skips
         # an existing file, and re-copying identical fixtures is idempotent.
         # Evolved corpus entries have content-hash names — never clobbered.
+        if: steps.should_fuzz.outputs.run == 'true'
         run: |
           mkdir -p /tmp/corpus /tmp/crash-artifacts
           cp tests/fixtures/*.json /tmp/corpus/
 
       - name: Fuzz parsers
+        if: steps.should_fuzz.outputs.run == 'true'
         env:
           PYTHONPATH: .
           # Short smoke on PRs; deeper sweep on the weekly schedule.
@@ -79,14 +120,14 @@ jobs:
       # Save even when fuzzing failed: coverage-increasing inputs found
       # before a crash are exactly the ones worth keeping for the rerun.
       - name: Save fuzz corpus
-        if: always()
+        if: always() && steps.should_fuzz.outputs.run == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/corpus
           key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload crash artifacts
-        if: failure()
+        if: failure() && steps.should_fuzz.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-crash-artifacts
