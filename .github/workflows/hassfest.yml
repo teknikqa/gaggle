@@ -13,7 +13,22 @@ jobs:
     name: Hassfest
     runs-on: ubuntu-latest
     steps:
+      # Runs before checkout: reads changed files from the GitHub API for
+      # both push and pull_request events, so there's no fetch-depth to
+      # get wrong. When neither the integration nor this workflow changed,
+      # every step below is skipped and the job still reports success
+      # (required-check-safe — see AGENTS.md's Repo Map note on this file).
+      - name: Detect relevant changes
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            relevant:
+              - 'custom_components/**'
+              - '.github/workflows/hassfest.yml'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.filter.outputs.relevant == 'true'
         with:
           persist-credentials: false
       - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb # master@2026-04-07
+        if: steps.filter.outputs.relevant == 'true'

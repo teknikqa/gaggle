@@ -13,9 +13,29 @@ jobs:
     name: HACS validation
     runs-on: ubuntu-latest
     steps:
+      # Runs before checkout: reads changed files from the GitHub API for
+      # both push and pull_request events, so there's no fetch-depth to
+      # get wrong. When nothing HACS validates changed, every step below
+      # is skipped and the job still reports success (required-check-safe
+      # — see AGENTS.md's Repo Map note on this file). Filter list is
+      # broader than hassfest.yml's because HACS also checks repo-level
+      # metadata, not just custom_components/.
+      - name: Detect relevant changes
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            relevant:
+              - 'custom_components/**'
+              - 'hacs.json'
+              - 'README.md'
+              - 'LICENSE'
+              - '.github/workflows/hacs.yml'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.filter.outputs.relevant == 'true'
         with:
           persist-credentials: false
       - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main@2026-01-26
+        if: steps.filter.outputs.relevant == 'true'
         with:
           category: integration
