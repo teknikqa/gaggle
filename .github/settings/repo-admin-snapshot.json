@@ -57,6 +57,7 @@
     "github_owned_allowed": true,
     "patterns_allowed": [
       "astral-sh/setup-uv@*",
+      "dorny/paths-filter@*",
       "hacs/action@*",
       "home-assistant/actions/*",
       "ossf/scorecard-action@*"
