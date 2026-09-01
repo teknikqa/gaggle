@@ -128,7 +128,7 @@ scripts/
 │   ├── codeql.yml           # weekly + per-PR CodeQL Python scan
 │   ├── compat.yml           # weekly non-blocking suite vs latest phcc/HA (incl. beta)
 │   ├── scorecard.yml        # weekly + on-push OpenSSF Scorecard self-assessment
-│   ├── fuzz.yml              # weekly deep run + PR smoke; corpus cached across runs; crash artifacts uploaded
+│   ├── fuzz.yml              # weekly deep run (always) + PR smoke (only when the PR touches agl/, tests/fuzz/, tests/fixtures/, or deps — paths-filter skip, same mechanism as hacs.yml/hassfest.yml); corpus cached across runs; crash artifacts uploaded
 │   └── settings-drift.yml   # weekly: re-export rulesets + public repo settings, diff vs .github/settings/, issue on drift
 ├── CODEOWNERS               # @teknikqa owns everything
 └── dependabot.yml           # weekly pip + github-actions updates, grouped into one PR per ecosystem
