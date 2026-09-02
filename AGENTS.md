@@ -100,7 +100,7 @@ tests/
 docs/
 ├── gas-api.md            # CONFIRMED Phase 0 findings — real endpoint, real response shape, what's still open (smart-meter gas)
 ├── energy-dashboard.md   # user guide — which statistic to add, what "sparse per-period bars" means
-├── releasing.md          # release acceptance policy (lightweight; grow once a release actually ships)
+├── releasing.md          # release-please mechanics + acceptance policy (lightweight; grow once a stable release actually ships)
 ├── testing.md            # test strategy — four layers, coverage floor, when live-HA manual testing is required
 ├── diagnostics.md        # diagnostics schema reference
 └── threat-model.md       # lightweight living threat model — grow once this has real users
@@ -125,6 +125,7 @@ scripts/
 │   ├── hacs.yml             # HACS validation — skips the actual validation step (via dorny/paths-filter) when the push/PR touches neither custom_components/, hacs.json, README.md, LICENSE, nor this file
 │   ├── hassfest.yml         # Home Assistant integration manifest validation — same paths-filter skip, scoped to custom_components/ + this file
 │   ├── release.yml          # tag-triggered Release (first-party gh CLI)
+│   ├── release-please.yml   # push-to-main: maintains the release-please version-bump/changelog PR (skip-github-release — never tags itself)
 │   ├── codeql.yml           # weekly + per-PR CodeQL Python scan
 │   ├── compat.yml           # weekly non-blocking suite vs latest phcc/HA (incl. beta)
 │   ├── scorecard.yml        # weekly + on-push OpenSSF Scorecard self-assessment
@@ -139,6 +140,8 @@ SECURITY.md                # disclosure path + threat-model summary (lightweight
 CONTRIBUTING.md            # dev loop + commit conventions + PR checklist
 CODE_OF_CONDUCT.md         # Contributor Covenant 2.1
 ROADMAP.md                  # direction + explicit non-goals (gas-only, single-retailer AGL, read-only, no telemetry)
+release-please-config.json  # release-please strategy — "simple" release-type, syncs manifest.json's version via jsonpath, skip-github-release (see docs/releasing.md)
+.release-please-manifest.json  # release-please's current-version bookkeeping per path
 ```
 
 Note on what's *not* here versus `haggle`: no `docs/compliance/` (the
@@ -194,7 +197,7 @@ against the actual post-implementation number.
 |---|---|---|
 | `/new-entity` | `/new-entity <key> <translation_key> <device_class> <state_class> <unit>` | Scaffolds sensor entity + test |
 | `/wt` | `/wt new <branch>` \| `/wt list` \| `/wt rm <branch>` | Manages sibling git worktrees |
-| `/release` | `/release 0.1.0` | Cuts a semver release via `release-manager` |
+| `/release` | `/release [expected-version]` | Merges the standing release-please PR + signs/pushes the tag, via `release-manager` |
 | `/hassfest` | `/hassfest` | Validates integration against hassfest rules |
 | `/pr` | `/pr` | Documentation audit + push + open PR |
 
@@ -436,6 +439,11 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
   squash-merge commit" section.
 - **No mutable GitHub Action refs** — pin every `uses: owner/action@…` to
   a 40-char commit SHA with a `# vX.Y` comment.
+- **Don't hand-edit `CHANGELOG.md` version sections or
+  `manifest.json`'s `version` field** — release-please
+  (`release-please-config.json`, `.github/workflows/release-please.yml`)
+  owns both via its standing PR, generated from Conventional Commits.
+  Write good commit messages instead; see `docs/releasing.md`.
 - **Don't surface raw AGL/Auth0 response bodies in exceptions** that
   propagate to `ConfigEntryAuthFailed` / `UpdateFailed`. Pattern:
   `_LOGGER.debug("…body: %s", _redact_body(text)); raise AGLError(...)`.

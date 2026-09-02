@@ -1,15 +1,22 @@
 # Release acceptance policy
 
-Channel model: every MINOR ships as `vX.Y.0-beta.N` prereleases on the HACS
-beta channel first, then promotes to stable with zero code diff. PATCH
-releases (hotfixes) may skip the ladder only under the hotfix rule below.
-`release.yml` marks any tag containing `-` as a prerelease.
+Mechanics: [`release-please`](https://github.com/googleapis/release-please)
+(`.github/workflows/release-please.yml`) watches Conventional Commits on
+`main` and maintains a standing PR that bumps
+`custom_components/gaggle/manifest.json`'s `version` and generates the
+matching `CHANGELOG.md` section. It never tags or creates a GitHub Release
+itself (`skip-github-release` in `release-please-config.json`) — merging
+that PR (squash, like any other PR) just lands the version bump on `main`.
+A human then signs and pushes the release tag exactly as before (see
+`.claude/agents/release-manager.md`), which is what `release.yml` actually
+gates on and publishes from. `release.yml` marks any tag containing `-` as
+a prerelease.
 
 This is a lighter version of `haggle`'s release policy, appropriate for a
-pre-release project with no shipped tag yet. Grow it (beta-soak duration
-requirements, a formal acceptance-evidence record) as gaggle picks up real
-users — `haggle`'s `docs/releasing.md` is the reference for what that looks
-like at maturity.
+pre-release project with no shipped stable tag yet. Grow it (a formal
+acceptance-evidence record, a beta channel) as gaggle picks up real users —
+`haggle`'s `docs/releasing.md` is the reference for what that looks like at
+maturity.
 
 ## Before the first release
 
@@ -22,13 +29,6 @@ ship until:
    reconciles against the AGL app or a real gas bill to within the API's
    own rounding.
 2. CI is green: ruff, mypy, pytest, hassfest, HACS validation.
-
-## Hotfix rule (stables that skip the ladder)
-
-A PATCH stable fixing a severe defect may ship without a beta soak ONLY
-with recorded validation evidence in the release PR: what was verified,
-against what ground truth, on which HA version. "CI is green" alone is not
-validation evidence for a statistics-path fix.
 
 ## Downgrade test (once per stable line)
 

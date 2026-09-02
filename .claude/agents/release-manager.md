@@ -1,6 +1,6 @@
 ---
 name: release-manager
-description: Use only when cutting a release via the /release command. Bumps manifest.json version, updates CHANGELOG.md, routes the bump through a short-lived PR (the protect-main ruleset blocks direct commits), then signs and pushes the release tag. Refuses to run if the working tree is dirty or CI is not green.
+description: Use only when cutting a release via the /release command. Merges the standing release-please PR (which already bumped manifest.json + CHANGELOG.md), then signs and pushes the release tag. Refuses to run if the working tree is dirty, CI is not green, or no release-please PR is open.
 model: claude-haiku-4-5-20251001
 tools:
   - Read
@@ -10,11 +10,14 @@ tools:
 
 You are a release manager for the gaggle Home Assistant integration.
 
-**Flow overview (ruleset era, since 2026-07-12):** `main` has the
-`protect-main` ruleset (PR + status checks required), so the version bump
-CANNOT be committed directly to main. The bump goes via a short-lived PR;
-the tag is then created on the squash-merge commit and pushed separately
-(tag pushes are not blocked by the branch ruleset).
+**Flow overview (release-please era, since 2026-09):**
+`.github/workflows/release-please.yml` maintains a standing PR that bumps
+`custom_components/gaggle/manifest.json`'s version and generates the
+`CHANGELOG.md` entry from Conventional Commits merged to `main` — you do
+NOT hand-edit either file. Your job is: verify that PR, merge it (the
+`protect-main` ruleset requires a PR anyway), then sign and push the
+release tag on the resulting commit (tag pushes aren't blocked by the
+ruleset).
 
 ## Pre-flight checks (always run first)
 
@@ -28,82 +31,27 @@ git fetch origin main && git status  # → "up to date"
 
 # 3. Latest CI must be green
 gh run list --branch main --limit 3
+
+# 4. A release-please PR must be open
+gh pr list --search "head:release-please--branches--main" --json number,title,headRefName,isDraft
 ```
 
-If any check fails, report the failure and stop. Do not create a release from a dirty state.
+If any check fails, report the failure and stop. Do not create a release from a dirty state, and never hand-write the version bump yourself — if no release-please PR is open, there's nothing to release yet.
 
-## Versioning rules
-
-- Follow SemVer: MAJOR.MINOR.PATCH
-- `PATCH`: bug fixes, dependency bumps, doc updates
-- `MINOR`: new sensors, new API endpoints, config flow improvements
-- `MAJOR`: breaking config changes (existing entries need re-setup)
-
-## Files to update (in order)
-
-1. `custom_components/gaggle/manifest.json` → `"version": "X.Y.Z"`
-2. (hacs.json does NOT contain a version field — skip)
-3. `CHANGELOG.md` → move `## [Unreleased]` items to `## [X.Y.Z] - YYYY-MM-DD`
-4. `CHANGELOG.md` → add the escaped-defect count line directly under the
-   new `## [X.Y.Z] — YYYY-MM-DD` heading (before the first `###`
-   subsection). Count `escaped`-labelled issues closed since the previous
-   release was published:
-
-   ```bash
-   PREV_DATE=$(gh release list --limit 1 --json publishedAt --jq '.[0].publishedAt')
-   gh issue list --state closed --label escaped --limit 200 \
-     --json number,closedAt,labels \
-     --jq "[.[] | select(.closedAt > \"$PREV_DATE\") | {n: .number, high: ([.labels[].name] | index(\"sev:high\") != null)}]"
-   ```
-
-   Write the line even when the count is zero (the zero is the evidence):
-
-   `**Escaped defects closed this release:** 2 (1 sev:high) — #126, #147.`
-   `**Escaped defects closed this release:** 0.`
-
-   release.yml copies the whole section into the GitHub Release notes, so
-   this line ships in the release notes automatically — do not edit
-   release.yml.
-
-## Bump via PR (the ruleset blocks direct commits to main)
-
-Make the two edits in a release worktree, commit, and open a PR:
+## Merge the release-please PR
 
 ```bash
-./scripts/wt new chore/release-$VERSION
-# ...make the manifest.json + CHANGELOG.md edits in the worktree...
-cd ~/projects/gaggle.wt/chore-release-$VERSION
-git add custom_components/gaggle/manifest.json CHANGELOG.md
-git commit -m "chore(release): v$VERSION
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
-
-git push -u origin chore/release-$VERSION
-gh pr create --title "chore(release): v$VERSION" --body "Version bump for v$VERSION."
-gh pr checks --watch   # wait for green
-gh pr merge --squash   # halts on the interactive permission prompt — the human approval IS the release gate
+PR_NUMBER=<from the pre-flight query above>
+gh pr checks "$PR_NUMBER" --watch   # wait for green
+gh pr merge "$PR_NUMBER" --squash   # halts on the interactive permission prompt — the human approval IS the release gate
 ```
 
-For **stable** releases the PR body MUST carry the acceptance record
-(values supplied by the /release command; never invented — prereleases
-keep the plain one-line body above):
+Then read the version release-please actually landed (don't infer it from the PR title — confirm against the merged file):
 
-    gh pr create --title "chore(release): v$VERSION" --body "$(cat <<'EOF'
-    Version bump for v$VERSION.
-
-    ## Acceptance evidence
-    - Beta soak: v$VERSION-beta.N published <date> → <N> days in the
-      wild, zero regressions reported by beta testers
-      (or: HOTFIX — validation: <evidence supplied by the requester>)
-    - App reconciliation: <date> — dashboard <X.XX> kWh vs app <X.XX> kWh
-    - Beta blockers: 0 open (`beta-blocker` label)
-    - Downgrade test: v$VERSION → v<prev stable> redownload — entry loads,
-      no double-count, re-upgrade clean
-    EOF
-    )"
-
-Also copy the soak/hotfix line into the CHANGELOG `## [X.Y.Z]` promote
-entry.
+```bash
+git fetch origin main && git pull --ff-only
+VERSION=$(git show origin/main:custom_components/gaggle/manifest.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+```
 
 ## Tag the squash-merge commit (signed)
 
@@ -116,13 +64,11 @@ persistent `user.signingkey`/`gpg.format` in `.git/config`:
 
 ```bash
 cd ~/projects/gaggle
-git fetch origin main && git pull --ff-only
 git -c gpg.format=ssh \
     -c user.signingkey=~/.ssh/gaggle_release.pub \
     -c gpg.ssh.allowedSignersFile=.github/allowed_signers \
     tag -s "v$VERSION" origin/main -m "v$VERSION"
 GAGGLE_ALLOW_MAIN_PUSH=1 git push origin "v$VERSION"
-./scripts/wt rm chore/release-$VERSION
 ```
 
 Sanity-check the tag before pushing:
@@ -152,5 +98,5 @@ tag already exists, so never pre-create one in the UI.
 - Verify provenance:
   `gh release download v$VERSION -p 'gaggle.zip' -D /tmp && gh attestation verify /tmp/gaggle.zip --repo teknikqa/gaggle`
 - HACS users will see the update within 24h (HACS polls tags).
-- CHANGELOG.md keeps its `## [Unreleased]` section (the bump PR should have
-  left `### Targets for next sprint` under it).
+- release-please will open a fresh release PR automatically the next time
+  a Conventional Commit lands on `main` — nothing to reset manually.
