@@ -549,5 +549,8 @@ maintainer. All commits carry `Co-Authored-By: Claude` trailers.
 
 **Human-approved boundary.** Merging a PR and creating/pushing a release
 tag always require a live human decision. The committed
-`.claude/settings.json` grants no merge verb and `ask`-gates every
-`Edit`/`Write`/`MultiEdit` touching `.claude/**`.
+`.claude/settings.json` grants no merge verb and `ask`-gates `Edit` on
+`.claude/**`. Claude Code consults file-path permission rules for `Edit`
+and `Read` only — a `Write(...)`/`MultiEdit(...)` path rule is accepted but
+never checked (and warns at startup), so don't "restore" those two as a
+matching set; `Edit` is the rule that actually gates writes here.

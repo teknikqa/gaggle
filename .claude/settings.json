@@ -30,9 +30,7 @@
       "Bash(scripts/*)"
     ],
     "ask": [
-      "Edit(.claude/**)",
-      "MultiEdit(.claude/**)",
-      "Write(.claude/**)"
+      "Edit(.claude/**)"
     ],
     "deny": [
       "Bash(gh auth token*)",
