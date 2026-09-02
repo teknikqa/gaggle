@@ -1,0 +1,28 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+# Deny-by-default at the top level; the job below grants its own scoped
+# writes (Scorecard Token-Permissions flags a workflow with no top-level
+# permissions block).
+permissions: {}
+
+jobs:
+  release-please:
+    name: Maintain release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # Opens/updates a standing PR proposing the next version bump +
+      # CHANGELOG.md entry from Conventional Commits merged to main since
+      # the last release. skip-github-release (release-please-config.json)
+      # means this action never tags or creates a GitHub Release itself —
+      # release.yml's SSH-signed-tag gate is the only thing that cuts an
+      # actual release; see docs/releasing.md.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
