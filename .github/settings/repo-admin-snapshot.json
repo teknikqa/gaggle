@@ -60,7 +60,8 @@
       "hacs/action@*",
       "home-assistant/actions/*",
       "ossf/scorecard-action@*",
-      "dorny/paths-filter@*"
+      "dorny/paths-filter@*",
+      "googleapis/release-please-action@*"
     ],
     "verified_allowed": false
   },
