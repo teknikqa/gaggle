@@ -14,11 +14,32 @@ jobs:
   release-please:
     name: Maintain release PR
     runs-on: ubuntu-latest
+    # contents:read is enough here — the actual write comes from the minted
+    # GitHub App installation token below, not GITHUB_TOKEN. The repo's
+    # "Allow GitHub Actions to create and approve pull requests" setting is
+    # deliberately left off (repo-wide, would apply to every workflow), so
+    # GITHUB_TOKEN itself could never open a PR regardless of what's granted
+    # here — see .github/settings/README.md.
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
 
     steps:
+      # release-please needs to open/update a PR. GITHUB_TOKEN can't (see
+      # above), so mint a short-lived token from a GitHub App installed
+      # only on this repo with Contents: write + Pull requests: write —
+      # narrower and more revocable than a standing PAT. App ID is a repo
+      # variable (not sensitive); the private key is a repo secret.
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          # Explicit even though the App's own install-time grant is
+          # already just these two — zizmor (github-app, high) flags an
+          # unscoped mint as inheriting whatever the App could ever hold.
+          permission-contents: write
+          permission-pull-requests: write
+
       # Opens/updates a standing PR proposing the next version bump +
       # CHANGELOG.md entry from Conventional Commits merged to main since
       # the last release. skip-github-release (release-please-config.json)
@@ -26,3 +47,5 @@ jobs:
       # release.yml's SSH-signed-tag gate is the only thing that cuts an
       # actual release; see docs/releasing.md.
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}

@@ -125,7 +125,7 @@ scripts/
 │   ├── hacs.yml             # HACS validation — skips the actual validation step (via dorny/paths-filter) when the push/PR touches neither custom_components/, hacs.json, README.md, LICENSE, nor this file
 │   ├── hassfest.yml         # Home Assistant integration manifest validation — same paths-filter skip, scoped to custom_components/ + this file
 │   ├── release.yml          # tag-triggered Release (first-party gh CLI)
-│   ├── release-please.yml   # push-to-main: maintains the release-please version-bump/changelog PR (skip-github-release — never tags itself)
+│   ├── release-please.yml   # push-to-main: maintains the release-please version-bump/changelog PR (skip-github-release — never tags itself); mints a GitHub App installation token (RELEASE_PLEASE_APP_ID/RELEASE_PLEASE_APP_PRIVATE_KEY) since GITHUB_TOKEN can't open PRs on this repo
 │   ├── codeql.yml           # weekly + per-PR CodeQL Python scan
 │   ├── compat.yml           # weekly non-blocking suite vs latest phcc/HA (incl. beta)
 │   ├── scorecard.yml        # weekly + on-push OpenSSF Scorecard self-assessment
@@ -444,6 +444,19 @@ Carried over from `haggle` (fuel-agnostic — still apply verbatim):
   (`release-please-config.json`, `.github/workflows/release-please.yml`)
   owns both via its standing PR, generated from Conventional Commits.
   Write good commit messages instead; see `docs/releasing.md`.
+- **Don't assume a workflow's `permissions: pull-requests: write` block is
+  enough for `GITHUB_TOKEN` to open a PR.** GitHub also gates PR
+  creation/approval by `GITHUB_TOKEN` behind a repo-wide setting ("Allow
+  GitHub Actions to create and approve pull requests" —
+  `can_approve_pull_request_reviews` in `repo-admin-snapshot.json`), which
+  a single workflow's `permissions:` block cannot override. This repo
+  leaves it off deliberately (turning it on would apply to every
+  workflow, not just one) — `release-please.yml` works around it by
+  minting a scoped GitHub App installation token instead (see
+  `.github/settings/README.md`'s "Standing secrets" section). Discovered
+  2026-09-02 when `release-please.yml` failed with "GitHub Actions is not
+  permitted to create or approve pull requests" despite declaring
+  `pull-requests: write`.
 - **Don't surface raw AGL/Auth0 response bodies in exceptions** that
   propagate to `ConfigEntryAuthFailed` / `UpdateFailed`. Pattern:
   `_LOGGER.debug("…body: %s", _redact_body(text)); raise AGLError(...)`.

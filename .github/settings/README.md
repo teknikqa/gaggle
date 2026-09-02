@@ -10,7 +10,7 @@ settings changes.
 |---|---|---|
 | `ruleset-<name>.json` | One per live ruleset, normalized (`scripts/normalize-ruleset.jq`) | Weekly, by `settings-drift.yml` |
 | `repo-public.json` | Anonymous-visible repo settings (`scripts/normalize-repo-public.jq`) | Weekly, by `settings-drift.yml` |
-| `repo-admin-snapshot.json` | Admin-only settings: merge methods, security & analysis toggles, Actions policy + selected-actions allowlist, ruleset bypass actors, classic branch protection (recorded as `null` since its deliberate retirement, 2026-07-13), secrets/hooks/keys inventory | **No** — reading these needs `administration` scope, which the workflow `GITHUB_TOKEN` cannot hold, and adding a standing PAT is against the zero-standing-secrets posture (#171). Refreshed manually. |
+| `repo-admin-snapshot.json` | Admin-only settings: merge methods, security & analysis toggles, Actions policy + selected-actions allowlist, ruleset bypass actors, classic branch protection (recorded as `null` since its deliberate retirement, 2026-07-13), secrets/hooks/keys inventory | **No** — reading these needs `administration` scope, which the workflow `GITHUB_TOKEN` cannot hold, and adding a standing PAT for that purpose is against the zero-standing-secrets posture. Refreshed manually. |
 
 ## Process rule — settings changes go PR-first
 
@@ -29,6 +29,26 @@ The documented break-glass for the `v*` tag ruleset (bad release tag: disable
 → fix → re-enable) is drift-invisible if completed within one run window, but
 record it in an issue regardless — control-plane changes are otherwise
 invisible on a personal account.
+
+## Standing secrets (documented exceptions)
+
+The zero-standing-secrets posture above is about broad, long-lived personal
+access tokens — it does not forbid every credential. One exception exists,
+and it's deliberately narrow:
+
+- `RELEASE_PLEASE_APP_PRIVATE_KEY` (secret) + `RELEASE_PLEASE_APP_ID`
+  (variable) — a GitHub App private key, installed only on this repo with
+  `contents: write` + `pull-requests: write` and nothing else.
+  `release-please.yml` mints a short-lived installation token from it per
+  run (`actions/create-github-app-token`) instead of using `GITHUB_TOKEN`,
+  because the repo's "Allow GitHub Actions to create and approve pull
+  requests" setting (`can_approve_pull_request_reviews` in
+  `repo-admin-snapshot.json`) is deliberately left off — that setting is
+  repo-wide, so turning it on would let every workflow open/approve PRs
+  via `GITHUB_TOKEN`, not just this one. A GitHub App key is still a
+  stored secret, but it's scoped to two permissions on one repo and
+  revocable independently of any personal credential — a materially
+  smaller blast radius than a personal PAT with the same reach.
 
 ## When the weekly check flags drift
 
