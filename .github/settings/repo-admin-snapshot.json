@@ -6,8 +6,8 @@
   },
   "classic_protection_main": null,
   "inventory": {
-    "actions_secrets": 0,
-    "actions_variables": 0,
+    "actions_secrets": 1,
+    "actions_variables": 1,
     "dependabot_secrets": 0,
     "deploy_keys": 0,
     "environments": 0,
