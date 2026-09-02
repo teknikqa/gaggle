@@ -12,6 +12,17 @@ release-please PR pick them up.
 
 ---
 
+## [0.1.1-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.0-beta.1...v0.1.1-beta.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* allow googleapis/release-please-action in the Actions selected-actions allowlist ([#23](https://github.com/teknikqa/gaggle/issues/23)) ([588999c](https://github.com/teknikqa/gaggle/commit/588999ce868527512a629909bcc1cfa8475897e8))
+* bump cryptography to 50.0.0, closing GHSA-g6cj-pr64-35w5 ([#10](https://github.com/teknikqa/gaggle/issues/10)) ([170b12d](https://github.com/teknikqa/gaggle/commit/170b12dc804e17fe819cb1f013c10124c23ec7bd))
+* checkout before dorny/paths-filter so push events don't hit startup-less failure ([#19](https://github.com/teknikqa/gaggle/issues/19)) ([97882ed](https://github.com/teknikqa/gaggle/commit/97882edf6ef2b782bb1fd238feaac68847d7c2fb))
+* keep only the functional Edit ask-gate on .claude/** ([#21](https://github.com/teknikqa/gaggle/issues/21)) ([4edf25e](https://github.com/teknikqa/gaggle/commit/4edf25e8654d848de564f190d6ce0b81f9ea700d))
+* mint a scoped GitHub App token for release-please PR creation ([#24](https://github.com/teknikqa/gaggle/issues/24)) ([f1ba64a](https://github.com/teknikqa/gaggle/commit/f1ba64a1128c3dd41f0d065df69f4e1ad07c514c))
+
 ## [0.1.0-beta.1] - 2026-08-03
 
 **Escaped defects closed this release:** 0.
