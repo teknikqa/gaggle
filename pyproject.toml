@@ -46,12 +46,12 @@ dev = [
     # two resolver deadlocks (#106, #120). uv.lock is the reproducibility
     # authority; this range just has to keep resolution satisfiable.
     #
-    # Capped below 0.13.358 as a deliberate exception to the above: 0.13.358
-    # and 0.13.359 exact-pin a HOME ASSISTANT BETA (2026.9.0b0/b1), not a
-    # stable release. 0.13.357 is the newest that still pins a stable HA
-    # (2026.8.3, matching the runtime floor above). Re-open the range once
-    # upstream ships a 0.13.x release that pins a stable HA version again —
-    # don't widen it just to clear a Dependabot PR in the meantime.
+    # Capped one patch above the floor as a deliberate exception to the
+    # above: some upstream releases exact-pin a HOME ASSISTANT BETA (e.g.
+    # 0.13.358/0.13.359 pinned 2026.9.0b0/b1). 0.13.363 pins stable HA
+    # 2026.9.0, matching the runtime floor above. Only move the cap to a
+    # release that pins a stable HA version — don't widen it just to clear a
+    # Dependabot PR that would pull in a beta.
     "pytest-homeassistant-custom-component>=0.13.363,<0.13.364",
     "ruff>=0.16.6",
     "mypy>=2.3.1",
