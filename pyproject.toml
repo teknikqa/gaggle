@@ -48,8 +48,8 @@ dev = [
     #
     # Capped one patch above the floor as a deliberate exception to the
     # above: some upstream releases exact-pin a HOME ASSISTANT BETA (e.g.
-    # 0.13.358/0.13.359 pinned 2026.9.0b0/b1). 0.13.363 pins stable HA
-    # 2026.9.0, matching the runtime floor above. Only move the cap to a
+    # 0.13.358/0.13.359 pinned 2026.9.0b0/b1). 0.13.367 pins stable HA
+    # 2026.9.4, matching the runtime floor above. Only move the cap to a
     # release that pins a stable HA version — don't widen it just to clear a
     # Dependabot PR that would pull in a beta.
     "pytest-homeassistant-custom-component>=0.13.367,<0.13.368",
