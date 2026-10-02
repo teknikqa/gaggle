@@ -38,6 +38,7 @@ import aiohttp
 import voluptuous as vol
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import (
+    SOURCE_REAUTH,
     ConfigFlow,
     ConfigFlowResult,
 )
@@ -359,6 +360,9 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self._contracts:
             return self.async_abort(reason="no_gas_contract")
 
+        if self.source == SOURCE_REAUTH:
+            return self._async_finish_reauth()
+
         if len(self._contracts) == 1:
             c = self._contracts[0]
             return await self._async_create_entry(
@@ -397,6 +401,24 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
         """Re-enter at Step 1 with fresh PKCE params when refresh token expires."""
         self._pkce_verifier = ""
         return await self.async_step_user()
+
+    def _async_finish_reauth(self) -> ConfigFlowResult:
+        """Store the new refresh token and pins on the existing entry.
+
+        The entry keeps its contract: the login must be able to see it, or
+        the flow aborts rather than point the entry at another account. A
+        pin whose capture failed is left as it was instead of being blanked.
+        """
+        entry = self._get_reauth_entry()
+        wanted = entry.data.get(CONF_CONTRACT_NUMBER)
+        if not any(c.contract_number == wanted for c in self._contracts):
+            return self.async_abort(reason="wrong_account")
+        updates = {CONF_REFRESH_TOKEN: self._refresh_token}
+        if self._auth_spki:
+            updates[CONF_PINNED_SPKI_AUTH] = self._auth_spki
+        if self._bff_spki:
+            updates[CONF_PINNED_SPKI_BFF] = self._bff_spki
+        return self.async_update_reload_and_abort(entry, data_updates=updates)
 
     # ------------------------------------------------------------------
     # Reconfigure -- re-pin after an AGL cert rotation
