@@ -4,10 +4,13 @@ version: 2
 # produced ~8 PRs/week that were hand-batched anyway (see the
 # `chore(deps): roll Dependabot batch` commits). One PR per ecosystem per
 # week is the same signal at an eighth of the toil. Runtime risk context:
-# manifest.json ships zero Python requirements, so every pip bump here is
+# manifest.json ships zero Python requirements, so every Python bump here is
 # dev-only and never reaches a user's HA install.
 updates:
-  - package-ecosystem: pip
+  # `uv`, not `pip`: the pip ecosystem edits pyproject.toml only and leaves
+  # uv.lock stale, which fails CI's `uv lock --check` on every weekly PR
+  # (#31 needed a hand-run `uv lock`). The uv ecosystem updates both.
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
