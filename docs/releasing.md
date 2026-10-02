@@ -12,6 +12,13 @@ A human then signs and pushes the release tag exactly as before (see
 gates on and publishes from. `release.yml` marks any tag containing `-` as
 a prerelease.
 
+After publishing, `release.yml` relabels the merged release PR from
+`autorelease: pending` to `autorelease: tagged`. release-please skips that
+step itself under `skip-github-release`, and while a merged PR stays
+`pending` it aborts instead of opening the next release PR. If the relabel
+job warns, do it by hand:
+`gh pr edit <n> --remove-label "autorelease: pending" --add-label "autorelease: tagged"`.
+
 This is a lighter version of `haggle`'s release policy, appropriate for a
 pre-release project with no shipped stable tag yet. Grow it (a formal
 acceptance-evidence record, a beta channel) as gaggle picks up real users —
