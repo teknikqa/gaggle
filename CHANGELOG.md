@@ -12,6 +12,13 @@ release-please PR pick them up.
 
 ---
 
+## [0.1.2-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.1-beta.1...v0.1.2-beta.1) (2026-10-02)
+
+
+### Features
+
+* **config_flow:** add Reconfigure step to re-pin AGL certificates ([#34](https://github.com/teknikqa/gaggle/issues/34)) ([6ed084f](https://github.com/teknikqa/gaggle/commit/6ed084f9bb38a0689f97cc854ce126d74f0dd6cd))
+
 ## [0.1.1-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.0-beta.1...v0.1.1-beta.1) (2026-09-02)
 
 
