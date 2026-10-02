@@ -183,3 +183,38 @@ jobs:
             --notes-file release_notes.txt \
             "${args[@]}" \
             "${assets[@]}"
+
+  # release-please refuses to open the next release PR while a merged one
+  # still carries "autorelease: pending" ("untagged, merged release PRs
+  # outstanding - aborting"). It normally flips that label itself when it
+  # creates the GitHub Release, but skip-github-release
+  # (release-please-config.json) turns that off, so do it here once the
+  # release is published. A separate job so the release job's token never
+  # gains pull-requests:write. Fails open: the release is already out, and a
+  # missed relabel is one manual `gh pr edit` (docs/releasing.md).
+  mark-release-pr-tagged:
+    name: Mark release PR as tagged
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Relabel the merged release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          prs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}/pulls" \
+            --jq '.[] | select(any(.labels[]; .name == "autorelease: pending")) | .number')"
+          if [ -z "${prs}" ]; then
+            echo "::warning::No PR labelled 'autorelease: pending' found for ${GITHUB_REF_NAME}; nothing relabelled."
+            exit 0
+          fi
+          for pr in ${prs}; do
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${pr}/labels" -f 'labels[]=autorelease: tagged' > /dev/null \
+              && gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${pr}/labels/autorelease%3A%20pending" > /dev/null \
+              && echo "PR #${pr}: autorelease: pending -> autorelease: tagged" \
+              || echo "::warning::Could not relabel PR #${pr}; run: gh pr edit ${pr} --remove-label 'autorelease: pending' --add-label 'autorelease: tagged'"
+          done
+          exit 0
