@@ -14,6 +14,10 @@
         "data": {
           "contract_number": "Contract"
         }
+      },
+      "reconfigure": {
+        "title": "Re-pin AGL certificates",
+        "description": "gaggle will replace its stored TLS pins with the certificates AGL is presenting now (stored → observed).\n\n`secure.agl.com.au`: `{auth_stored}` → `{auth_observed}`\n\n`api.platform.agl.com.au`: `{bff_stored}` → `{bff_observed}`\n\nOnly submit on a network you trust."
       }
     },
     "error": {
@@ -23,7 +27,9 @@
     "abort": {
       "already_configured": "This AGL contract is already configured.",
       "reauth_successful": "Reauthentication successful.",
-      "no_gas_contract": "No gas contract was found on this AGL account. gaggle only supports gas -- for electricity, see the haggle integration."
+      "no_gas_contract": "No gas contract was found on this AGL account. gaggle only supports gas -- for electricity, see the haggle integration.",
+      "reconfigure_successful": "AGL certificates re-pinned.",
+      "cannot_connect": "Could not reach AGL. Check your internet connection."
     }
   },
   "entity": {
