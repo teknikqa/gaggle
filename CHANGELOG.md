@@ -12,6 +12,13 @@ release-please PR pick them up.
 
 ---
 
+## [0.1.3-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.2-beta.1...v0.1.3-beta.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **config_flow:** save the new token on reauth instead of aborting ([#38](https://github.com/teknikqa/gaggle/issues/38)) ([3288190](https://github.com/teknikqa/gaggle/commit/3288190bb1b3fabe74940dab82c3b91227fcdcec))
+
 ## [0.1.2-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.1-beta.1...v0.1.2-beta.1) (2026-10-02)
 
 
