@@ -29,7 +29,8 @@
       "reauth_successful": "Reauthentication successful.",
       "no_gas_contract": "No gas contract was found on this AGL account. gaggle only supports gas -- for electricity, see the haggle integration.",
       "reconfigure_successful": "AGL certificates re-pinned.",
-      "cannot_connect": "Could not reach AGL. Check your internet connection."
+      "cannot_connect": "Could not reach AGL. Check your internet connection.",
+      "wrong_account": "That AGL login does not include the contract this entry monitors. Log in with the original account."
     }
   },
   "entity": {

@@ -459,3 +459,69 @@ async def test_reconfigure_capture_failure_keeps_pins(hass: HomeAssistant) -> No
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "cannot_connect"
     assert entry.data[CONF_PINNED_SPKI_BFF] == "0ld0ld0l" * 8
+
+
+async def _run_reauth(
+    hass: HomeAssistant, entry: MockConfigEntry, contracts: list[Contract]
+) -> dict:
+    """Drive a reauth flow to completion with a fresh token and fresh pins."""
+    with (
+        patch(
+            "custom_components.gaggle.config_flow._exchange_code",
+            new_callable=AsyncMock,
+            return_value=("access_tok", "new_refresh_tok", "deadbeef" * 8),
+        ),
+        patch(
+            "custom_components.gaggle.config_flow._fetch_contracts",
+            new_callable=AsyncMock,
+            return_value=(contracts, "cafef00d" * 8),
+        ),
+        patch(
+            "custom_components.gaggle.async_setup_entry",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+    ):
+        result = await entry.start_reauth_flow(hass)
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "user"
+        callback_url = _make_callback_url(
+            result["description_placeholders"]["authorize_url"]
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CALLBACK_URL_FIELD: callback_url}
+        )
+        await hass.async_block_till_done()
+    return result
+
+
+async def test_reauth_updates_token_and_pins(hass: HomeAssistant) -> None:
+    """Reauth must persist the new refresh token and re-pin, not abort."""
+    entry = _pinned_entry(hass)
+
+    result = await _run_reauth(hass, entry, [_ELECTRICITY_CONTRACT, _CONTRACT])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_REFRESH_TOKEN] == "new_refresh_tok"
+    assert entry.data[CONF_PINNED_SPKI_AUTH] == "deadbeef" * 8
+    assert entry.data[CONF_PINNED_SPKI_BFF] == "cafef00d" * 8
+    assert entry.data[CONF_CONTRACT_NUMBER] == "9999999999"
+
+
+async def test_reauth_with_other_account_keeps_entry(hass: HomeAssistant) -> None:
+    """Logging in to an account without the entry's contract must not overwrite it."""
+    entry = _pinned_entry(hass)
+    other = Contract(
+        contract_number="7777777777",
+        account_number="5555555555",
+        address="2 Other Street SUBURB QLD 4000",
+        fuel_type="gasContract",
+        status="active",
+    )
+
+    result = await _run_reauth(hass, entry, [other])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "wrong_account"
+    assert entry.data[CONF_REFRESH_TOKEN] == "refresh_tok"
