@@ -17,7 +17,12 @@ Onboarding strategy:
             and validated on every subsequent request from coordinator polling.
 
 Reauth re-enters at Step 1 with fresh PKCE params, which naturally re-pins
-both endpoints — the recommended remediation for legitimate AGL cert rotation.
+both endpoints.
+
+Reconfigure re-pins both endpoints without a login: it opens a fresh TLS
+connection to each host, shows the stored and observed SPKI prefixes, and
+persists the observed ones on confirm — the remediation for a legitimate AGL
+cert rotation.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import aiohttp
 import voluptuous as vol
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
@@ -203,6 +209,28 @@ async def _fetch_contracts(access_token: str) -> tuple[list[Contract], str]:
     return parse_overview(data), bff_spki
 
 
+async def _capture_pins() -> tuple[str, str]:
+    """Handshake with both AGL hosts and return (auth_spki, bff_spki).
+
+    No credentials are sent and the HTTP status is ignored — the TLS
+    handshake alone yields the leaf-cert SPKI, and aiohttp's default chain
+    validation still applies. Empty string for a host whose capture failed.
+    """
+    connector = GagglePinningConnector()
+    async with aiohttp.ClientSession(
+        connector=connector, timeout=aiohttp.ClientTimeout(total=15)
+    ) as session:
+        for url in (AGL_AUTH_HOST, AGL_API_HOST):
+            async with session.get(
+                url, headers={"User-Agent": AGL_USER_AGENT}, allow_redirects=False
+            ):
+                pass
+    return (
+        connector.observed.get(AGL_AUTH_HOST_NAME, ""),
+        connector.observed.get(AGL_BFF_HOST_NAME, ""),
+    )
+
+
 class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the gaggle config flow."""
 
@@ -369,6 +397,48 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
         """Re-enter at Step 1 with fresh PKCE params when refresh token expires."""
         self._pkce_verifier = ""
         return await self.async_step_user()
+
+    # ------------------------------------------------------------------
+    # Reconfigure -- re-pin after an AGL cert rotation
+    # ------------------------------------------------------------------
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show stored vs observed SPKI for both hosts; re-pin on confirm."""
+        entry = self._get_reconfigure_entry()
+
+        if not self._auth_spki or not self._bff_spki:
+            try:
+                self._auth_spki, self._bff_spki = await _capture_pins()
+            except aiohttp.ClientError, TimeoutError:
+                return self.async_abort(reason="cannot_connect")
+            if not self._auth_spki or not self._bff_spki:
+                return self.async_abort(reason="cannot_connect")
+
+        if user_input is not None:
+            for host in (AGL_AUTH_HOST_NAME, AGL_BFF_HOST_NAME):
+                persistent_notification.async_dismiss(
+                    self.hass, f"{DOMAIN}_pin_mismatch_{host}"
+                )
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates={
+                    CONF_PINNED_SPKI_AUTH: self._auth_spki,
+                    CONF_PINNED_SPKI_BFF: self._bff_spki,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "auth_stored": entry.data.get(CONF_PINNED_SPKI_AUTH, "")[:12] or "none",
+                "auth_observed": self._auth_spki[:12],
+                "bff_stored": entry.data.get(CONF_PINNED_SPKI_BFF, "")[:12] or "none",
+                "bff_observed": self._bff_spki[:12],
+            },
+        )
 
     # ------------------------------------------------------------------
     # Entry creation

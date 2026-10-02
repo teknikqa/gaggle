@@ -8,12 +8,15 @@ from urllib.parse import parse_qs, urlparse
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.gaggle.agl.client import AGLAuthError, AGLError
 from custom_components.gaggle.agl.models import Contract
 from custom_components.gaggle.config_flow import CALLBACK_URL_FIELD
 from custom_components.gaggle.const import (
     CONF_CONTRACT_NUMBER,
+    CONF_PINNED_SPKI_AUTH,
+    CONF_PINNED_SPKI_BFF,
     CONF_REFRESH_TOKEN,
     DOMAIN,
 )
@@ -389,3 +392,70 @@ def test_no_options_flow_module_export() -> None:
     import custom_components.gaggle.config_flow as config_flow_module
 
     assert not hasattr(config_flow_module, "GaggleOptionsFlow")
+
+
+def _pinned_entry(hass: HomeAssistant) -> MockConfigEntry:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="1234567890_9999999999",
+        data={
+            CONF_REFRESH_TOKEN: "refresh_tok",
+            CONF_CONTRACT_NUMBER: "9999999999",
+            CONF_PINNED_SPKI_AUTH: "0ld0ld0l" * 8,
+            CONF_PINNED_SPKI_BFF: "0ld0ld0l" * 8,
+        },
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+async def test_reconfigure_repins_both_hosts(hass: HomeAssistant) -> None:
+    """Reconfigure shows stored vs observed pins and persists the observed ones."""
+    entry = _pinned_entry(hass)
+
+    with (
+        patch(
+            "custom_components.gaggle.config_flow._capture_pins",
+            new_callable=AsyncMock,
+            return_value=("deadbeef" * 8, "cafef00d" * 8),
+        ),
+        patch(
+            "custom_components.gaggle.async_setup_entry",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+        assert result["description_placeholders"]["auth_stored"] == "0ld0ld0l0ld0"
+        assert result["description_placeholders"]["auth_observed"] == "deadbeefdead"
+        # Nothing is written until the user confirms.
+        assert entry.data[CONF_PINNED_SPKI_AUTH] == "0ld0ld0l" * 8
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_PINNED_SPKI_AUTH] == "deadbeef" * 8
+    assert entry.data[CONF_PINNED_SPKI_BFF] == "cafef00d" * 8
+    assert entry.data[CONF_REFRESH_TOKEN] == "refresh_tok"
+
+
+async def test_reconfigure_capture_failure_keeps_pins(hass: HomeAssistant) -> None:
+    """A host whose SPKI could not be captured must not blank the stored pin."""
+    entry = _pinned_entry(hass)
+
+    with patch(
+        "custom_components.gaggle.config_flow._capture_pins",
+        new_callable=AsyncMock,
+        return_value=("deadbeef" * 8, ""),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "cannot_connect"
+    assert entry.data[CONF_PINNED_SPKI_BFF] == "0ld0ld0l" * 8
