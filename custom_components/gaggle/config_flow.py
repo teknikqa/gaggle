@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import aiohttp
-import voluptuous as vol
+import probatio
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
@@ -280,7 +280,7 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CALLBACK_URL_FIELD): str}),
+            data_schema=probatio.Schema({probatio.Required(CALLBACK_URL_FIELD): str}),
             description_placeholders={"authorize_url": authorize_url},
             errors=errors,
         )
@@ -292,7 +292,7 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_exchange(self, code: str) -> ConfigFlowResult:
         """Exchange the authorization code for tokens (PKCE grant)."""
         authorize_url = _build_authorize_url(self._pkce_challenge, self._oauth_state)
-        schema = vol.Schema({vol.Required(CALLBACK_URL_FIELD): str})
+        schema = probatio.Schema({probatio.Required(CALLBACK_URL_FIELD): str})
 
         try:
             access_token, refresh_token, auth_spki = await _exchange_code(
@@ -352,7 +352,7 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
                 return self.async_show_form(
                     step_id="select_contract",
-                    data_schema=vol.Schema({}),
+                    data_schema=probatio.Schema({}),
                     errors=errors,
                 )
             self._contracts = [c for c in all_contracts if c.fuel_type == GAS_FUEL_TYPE]
@@ -388,8 +388,8 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="select_contract",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_CONTRACT_NUMBER): vol.In(options)}
+            data_schema=probatio.Schema(
+                {probatio.Required(CONF_CONTRACT_NUMBER): probatio.In(options)}
             ),
         )
 
@@ -453,7 +453,7 @@ class GaggleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema({}),
+            data_schema=probatio.Schema({}),
             description_placeholders={
                 "auth_stored": entry.data.get(CONF_PINNED_SPKI_AUTH, "")[:12] or "none",
                 "auth_observed": self._auth_spki[:12],
