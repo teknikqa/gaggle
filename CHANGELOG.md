@@ -12,6 +12,13 @@ release-please PR pick them up.
 
 ---
 
+## [0.1.4-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.3-beta.1...v0.1.4-beta.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **config_flow:** build schemas with probatio for HA 2026.10 ([0ab9888](https://github.com/teknikqa/gaggle/commit/0ab9888b87c3d1335e0f8938eaf39cd57d9eb250))
+
 ## [0.1.3-beta.1](https://github.com/teknikqa/gaggle/compare/v0.1.2-beta.1...v0.1.3-beta.1) (2026-10-02)
 
 
