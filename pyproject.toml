@@ -52,8 +52,8 @@ dev = [
     # 2026.9.4, matching the runtime floor above. Only move the cap to a
     # release that pins a stable HA version — don't widen it just to clear a
     # Dependabot PR that would pull in a beta.
-    "pytest-homeassistant-custom-component>=0.13.372,<0.13.373",
-    "ruff>=0.17.1",
+    "pytest-homeassistant-custom-component>=0.13.373,<0.13.374",
+    "ruff>=0.17.2",
     "mypy>=2.4.0",
     "pre-commit>=4.7.0",
     # Workflow security audit (CI step + pre-commit local hook). Rust binary
