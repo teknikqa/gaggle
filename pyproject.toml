@@ -53,12 +53,12 @@ dev = [
     # release that pins a stable HA version — don't widen it just to clear a
     # Dependabot PR that would pull in a beta.
     "pytest-homeassistant-custom-component>=0.13.375,<0.13.376",
-    "ruff>=0.17.3",
+    "ruff>=0.17.4",
     "mypy>=2.4.1",
     "pre-commit>=4.7.0",
     # Workflow security audit (CI step + pre-commit local hook). Rust binary
     # wheels from PyPI; version governed by uv.lock like ruff/mypy.
-    "zizmor>=1.31.1",
+    "zizmor>=1.32.0",
 ]
 
 [project.urls]
